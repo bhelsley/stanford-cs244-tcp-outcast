@@ -2,6 +2,8 @@
 
 "CS244 Assignment 1: Parking Lot"
 
+import re
+
 from mininet.topo import Topo
 from mininet.net import Mininet
 from mininet.log import lg, output
@@ -50,7 +52,7 @@ parser.add_argument('--time', '-t',
                     type=int,
                     help="Duration of the experiment.",
                     default=60)
-                    
+
 parser.add_argument('--bw', '-b',
                     type=float,
                     help="Bandwidth of network links (in Mbps)",
@@ -151,11 +153,39 @@ def check_prereqs():
                 'Could not find %s - make sure that it is '
                 'installed and in your $PATH') % p)
 
+def check_bandwidth(net, test_rate='100M'):
+  """Verify link bandwidth using iperf between hosts, and host to receiver."""
+
+  parse_mbps_re = re.compile(r'(\d+\.?\d+) Mbits/sec')
+
+  def _GetIPerfResult(*args, **kwargs):
+      result = net.iperf(*args, **kwargs)
+      cmbps = parse_mbps_re.match(result[-1])
+      smbps = parse_mbps_re.match(result[-2])
+      if not cmbps or not smbps:
+          print '*** Error: cannot parse iperf result: %s' % result
+          return (None, None)
+      server_mbps = float(smbps.groups()[0])
+      client_mbps = float(cmbps.groups()[0])
+      return (server_mbps, client_mbps)
+
+  # Measure the bandwidth between each pair of hosts in the topology.
+  result = {}
+  for i, h1 in enumerate(net.hosts):
+    for h2 in net.hosts[i+1:]:
+      server_mbps, client_mbps = _GetIPerfResult(
+          [h1, h2], l4Type='UDP', udpBw=test_rate)
+      result[('%s@%s' % (h1.name, h1.IP()), '%s@%s' % (h2.name, h2.IP()))] = (
+          client_mbps, server_mbps)
+
+  return result
+
+
 def main():
     "Create and run experiment"
     start = time()
 
-    topo = SingleSwitchOutcastTopo() 
+    topo = SingleSwitchOutcastTopo()
 
     host = custom(CPULimitedHost, cpu=.15)  # 15% of system bandwidth
     link = custom(TCLink, bw=args.bw, delay='1ms',
@@ -171,6 +201,10 @@ def main():
     cprint("*** Testing connectivity", "blue")
 
     net.pingAll()
+
+    cprint("*** Testing bandwidth", "blue")
+    for pair, result in check_bandwidth(net).iteritems():
+      print pair, '=', result
 
     cprint("*** Running experiment", "magenta")
     run_outcast(net, n_h1=args.n1, n_h2=args.n2)

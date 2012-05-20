@@ -13,7 +13,7 @@ TcpProbeRecord = collections.namedtuple(
 
 def ParseTcpProbe(fd, filter_fn=None):
   """Parse TCP probe output from file-like object.
-  
+
   Args:
     fd: File-like object to read from.
   """
@@ -28,7 +28,13 @@ def ParseTcpProbe(fd, filter_fn=None):
     tokens = l.split(' ')
     if len(tokens) != 10:
       return
-    (ts, sender, receiver, pkt_bytes, next_seqno, unacked_seqno, cwnd,
+    # TODO(bhelsley): I'm swapping sender and receiver here.  The only TCP probe documentation
+    # I can find claims the opposite:
+    #  http://www.linuxfoundation.org/collaborate/workgroups/networking/tcptesting
+    # BUT, the packets in the tcp_dump with the iperf server as the receiver are 32-byte ACKs.
+    # Not sure if there's something about the tcp_probe module that might cause this to get
+    # confused?
+    (ts, receiver, sender, pkt_bytes, next_seqno, unacked_seqno, cwnd,
      slow_start_threshold, send_window, _) = tokens
     return TcpProbeRecord(float(ts), sender, receiver, int(pkt_bytes),
                           int(next_seqno, 16), int(unacked_seqno, 16), int(cwnd),
@@ -84,8 +90,8 @@ def PlotMbps(tcp_probe_data, outfile):
   ax.set_ylabel("Mbps")
 
   matplotlib.pyplot.savefig(outfile)
-    
-     
+
+
 def main():
   parser = argparse.ArgumentParser()
   parser.add_argument('-f', dest='files', nargs='+', required=True)
@@ -95,7 +101,7 @@ def main():
 
   for f in args.files:
     with open(f) as fd:
-      data = ParseTcpProbe(fd, lambda(x): x.receiver == args.receiver)    
+      data = ParseTcpProbe(fd, lambda(x): x.receiver == args.receiver)
       PlotMbps(data, args.out)
 
 
