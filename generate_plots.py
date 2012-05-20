@@ -63,11 +63,12 @@ def ComputeMbps(tcp_probe_records):
   one_mb = float(2**20)
   return [buckets.get(x, 0) / one_mb for x in xrange(max_bucket + 1)]
 
-
-def PlotMbps(tcp_probe_data, outfile):
+def MakeFig():
   matplotlib.rc('figure', figsize=(16, 6))
   fig = matplotlib.pyplot.figure()
-  ax = fig.add_subplot(1, 1, 1)
+  return fig
+
+def PlotMbpsInstant(ax, tcp_probe_data):
   to_plot = []
   for key, values in tcp_probe_data.iteritems():
     mbps = ComputeMbps(values)
@@ -76,7 +77,8 @@ def PlotMbps(tcp_probe_data, outfile):
   y_adjust = 0
   lines = []
   for _, key, mbps in sorted(to_plot):
-    l = ax.plot([y + y_adjust for y in mbps], lw=2, label=key)[0]
+    label = (not lines and key) or ''
+    l = ax.plot([y + y_adjust for y in mbps], lw=2, label=label)[0]
     lines.append((l.get_color(), y_adjust, mbps))
     y_adjust += shift
   # Fill-in the plots in reverse order (so we overlap front-to-back).
@@ -89,7 +91,43 @@ def PlotMbps(tcp_probe_data, outfile):
   ax.set_xlabel("seconds")
   ax.set_ylabel("Mbps")
 
-  matplotlib.pyplot.savefig(outfile)
+
+def _GetMeanMedian(l):
+  l = sorted(l)
+  if l:
+    return (sum(l) / float(len(l)), l[len(l)/2])
+  return None
+
+
+def PlotMbpsSummary(ax, tcp_probe_data):
+  # Aggregate tcp_probe data by host (to delineate number of flows).
+  # Compute mean and median for first, middle, and last third.
+  host_data = {}
+  for key, values in tcp_probe_data.iteritems():
+    host = key.split(':')[0]
+    mbps = ComputeMbps(values)
+    first, middle, last = host_data.setdefault(host, ([], [], []))
+    n = len(mbps)
+    first.extend(mbps[:n/3])
+    middle.extend(mbps[n/3:2*n/3])
+    last.extend(mbps[2*n/3:])
+  means = {}
+  for h, data in host_data.iteritems():
+    first, middle, last = data
+    means[h] = [_GetMeanMedian(first)[0],
+                _GetMeanMedian(middle)[0],
+                _GetMeanMedian(last)[0]]
+
+  ind = range(3)
+  width = 0.35
+  rects1 = ax.bar(ind, means['10.0.0.2'], width, color='r')
+  rects2 = ax.bar([x + width for x in ind], means['10.0.0.3'], width, color='y')
+
+  ax.set_ylabel('Avg Thpt (Mbps)')
+  ax.set_xlabel('Time (sec)')
+  ax.set_xticks([x + width for x in ind])
+
+  ax.legend((rects1[0], rects2[0]), ('10.0.0.2', '10.0.0.3'))
 
 
 def main():
@@ -102,7 +140,13 @@ def main():
   for f in args.files:
     with open(f) as fd:
       data = ParseTcpProbe(fd, lambda(x): x.receiver == args.receiver)
-      PlotMbps(data, args.out)
+      fig = MakeFig()
+      ax = fig.add_subplot(1, 2, 1)
+      PlotMbpsInstant(ax, data)
+      ax = fig.add_subplot(1, 2, 2)
+      PlotMbpsSummary(ax, data)
+
+      matplotlib.pyplot.savefig(args.out)
 
 
 if __name__ == '__main__':
