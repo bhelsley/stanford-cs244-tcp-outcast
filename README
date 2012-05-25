@@ -1,0 +1,11 @@
+
+See INSTALL for one time setup.
+
+Follow the steps below to run a Fat Tree topology with k=4 with static routing.
+
+1. Run the script ./run_openflow.sh
+
+2. In another console, run the following:
+sudo python fat_tree_topology.py
+
+3. Once you see the mininet prompt, run pingall to verify all hosts are reachable by all other hosts.

@@ -5,16 +5,17 @@
 
 from mininet.topo import Topo
 from mininet.net import Mininet
-from mininet.node import CPULimitedHost
+from mininet.node import CPULimitedHost, RemoteController
 from mininet.link import TCLink
 from mininet.util import custom, dumpNetConnections
 from mininet.log import lg, output
 from mininet.cli import CLI
+from ripl.ripl.dctopo import FatTreeTopo
 
 lg.setLogLevel('info')
 
 
-class FatTreeTopo(Topo):
+class FatTreeTopology(Topo):
 
     def __init__(self, bw, delay=None, **params):
         """Fat Tree topology with 4-ports switches and 3 layers.
@@ -82,18 +83,19 @@ class FatTreeTopo(Topo):
 
 
 def main():
-    topo = FatTreeTopo(bw=1000, delay='0.1ms')
+    topo = FatTreeTopo(4)
 
     host = custom(CPULimitedHost, cpu=0.5)
 
-    net = Mininet(topo=topo, host=CPULimitedHost, link=TCLink)
+    net = Mininet(topo=topo, host=CPULimitedHost, link=TCLink,
+                  controller=RemoteController)
     net.start()
 
     dumpNetConnections(net)
     #net.pingAll()
     CLI(net)
 
-    net.stop
+    net.stop()
 
 if __name__ == '__main__':
     main()
