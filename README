@@ -1,7 +1,8 @@
 
 See INSTALL for one time setup.
 
-Follow the steps below to run a Fat Tree topology with k=4 with static routing.
+Follow the steps below to run a Fat Tree topology with k=4 with static routing. Run
+all commands from cs244_final/ directory unless mentioned otherwise.
 
 1. Run the script ./run_openflow.sh
 
