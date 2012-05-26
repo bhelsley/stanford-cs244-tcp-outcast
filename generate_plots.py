@@ -1,3 +1,4 @@
+import sys
 import argparse
 import collections
 import matplotlib
@@ -51,33 +52,39 @@ def ParseTcpProbe(fd, filter_fn=None):
   return result
 
 
-def ComputeMbps(tcp_probe_records):
+def ComputeMbps(tcp_probe_records, bucket_size_ms, end_time_ms):
   """Compute approximate Mbps series from a list of TcpProbeRecords."""
   buckets = {}
   for r in tcp_probe_records:
-    bucket = int(r.timestamp)
+    bucket = int(r.timestamp * 1000 / bucket_size_ms)
     buckets.setdefault(bucket, 0)
     buckets[bucket] += (8 * r.pkt_bytes)
 
-  max_bucket = max(buckets.iterkeys())
-  one_mb = float(2**20)
-  return [buckets.get(x, 0) / one_mb for x in xrange(max_bucket + 1)]
+  n_buckets = int(float(end_time_ms) / bucket_size_ms)
+  one_mb = float(2**20) / bucket_size_ms
+  r = [buckets.get(x, 0) / one_mb for x in xrange(n_buckets)]
+  return r
 
-def MakeFig():
-  matplotlib.rc('figure', figsize=(16, 6))
+def MakeFig(rows, cols):
+  height = 4 * rows
+  width = 6 * cols
+  matplotlib.rc('figure', figsize=(width, height))
   fig = matplotlib.pyplot.figure()
   return fig
 
-def PlotMbpsInstant(ax, tcp_probe_data):
+def PlotMbpsInstant(ax, tcp_probe_data, bucket_size_ms, end_time_ms, title,
+                    outcast_host):
   to_plot = []
   for key, values in tcp_probe_data.iteritems():
-    mbps = ComputeMbps(values)
-    to_plot.append((sum(mbps) / len(mbps), key, mbps))
+    mbps = ComputeMbps(values, bucket_size_ms, end_time_ms)
+    to_plot.append((sorted(mbps)[int(0.7 * len(mbps))], key, mbps))
   shift = max([x[0] for x in to_plot]) * 1.5
   y_adjust = 0
   lines = []
   for _, key, mbps in sorted(to_plot):
-    label = (not lines and key) or ''
+    label = None
+    if key.startswith(outcast_host):
+      label = key
     l = ax.plot([y + y_adjust for y in mbps], lw=2, label=label)[0]
     lines.append((l.get_color(), y_adjust, mbps))
     y_adjust += shift
@@ -90,6 +97,8 @@ def PlotMbpsInstant(ax, tcp_probe_data):
   ax.legend()
   ax.set_xlabel("seconds")
   ax.set_ylabel("Mbps")
+  if title:
+    ax.set_title(title)
 
 
 def _GetMeanMedian(l):
@@ -99,13 +108,13 @@ def _GetMeanMedian(l):
   return None
 
 
-def PlotMbpsSummary(ax, tcp_probe_data):
+def PlotMbpsSummary(ax, tcp_probe_data, bucket_size_ms, end_time_ms, title=None):
   # Aggregate tcp_probe data by host (to delineate number of flows).
   # Compute mean and median for first, middle, and last third.
   host_data = {}
   for key, values in tcp_probe_data.iteritems():
     host = key.split(':')[0]
-    mbps = ComputeMbps(values)
+    mbps = ComputeMbps(values, bucket_size_ms, end_time_ms)
     first, middle, last = host_data.setdefault(host, ([], [], []))
     n = len(mbps)
     first.extend(mbps[:n/3])
@@ -126,8 +135,11 @@ def PlotMbpsSummary(ax, tcp_probe_data):
   ax.set_ylabel('Avg Thpt (Mbps)')
   ax.set_xlabel('Time (sec)')
   ax.set_xticks([x + width for x in ind])
+  ax.set_xticklabels(('0.1', '0.3', '0.5'))
 
   ax.legend((rects1[0], rects2[0]), ('10.0.0.2', '10.0.0.3'))
+  if title:
+    ax.set_title(title)
 
 
 def main():
@@ -135,16 +147,29 @@ def main():
   parser.add_argument('-f', dest='files', nargs='+', required=True)
   parser.add_argument('-r', dest='receiver', required=True)
   parser.add_argument('-o', dest='out', required=True)
+  parser.add_argument('--instant_title', dest='instant_title')
+  parser.add_argument('--summary_title', dest='summary_title')
+  parser.add_argument('--skip_instant', dest='skip_instant', type=bool,
+                      default=False)
+  parser.add_argument('--bucket_size_ms', required=True, type=int)
+  parser.add_argument('--end_time_ms', required=True, type=int)
+  parser.add_argument('--outcast_host', default='10.0.0.2')
   args = parser.parse_args()
 
   for f in args.files:
     with open(f) as fd:
       data = ParseTcpProbe(fd, lambda(x): x.receiver == args.receiver)
-      fig = MakeFig()
-      ax = fig.add_subplot(1, 2, 1)
-      PlotMbpsInstant(ax, data)
-      ax = fig.add_subplot(1, 2, 2)
-      PlotMbpsSummary(ax, data)
+      if not args.skip_instant:
+        fig = MakeFig(1, 2)
+        ax = fig.add_subplot(1, 2, 1)
+        PlotMbpsInstant(ax, data, args.bucket_size_ms, args.end_time_ms, args.instant_title,
+                        args.outcast_host)
+        ax = fig.add_subplot(1, 2, 2)
+        PlotMbpsSummary(ax, data, args.bucket_size_ms, args.end_time_ms, args.summary_title)
+      else:
+        fig = MakeFig(1, 1)
+        ax = fig.add_subplot(1, 1, 1)
+        PlotMbpsSummary(ax, data, args.bucket_size_ms, args.end_time_ms, args.summary_title)
 
       matplotlib.pyplot.savefig(args.out)
 

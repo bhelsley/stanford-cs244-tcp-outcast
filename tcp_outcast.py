@@ -47,6 +47,14 @@ parser.add_argument('--n2',
                     help=("Number of h2 flows.  Must be >= 1"),
                     required=True)
 
+parser.add_argument('--rto_min',
+                    help=('minRTO value to set on hosts.'),
+                    default='2ms')
+
+parser.add_argument('--queue_size',
+                    help=('queue size to set on switch.'),
+                    default='16kb')
+
 parser.add_argument('--time', '-t',
                     dest="time",
                     type=int,
@@ -86,6 +94,7 @@ class SingleSwitchOutcastTopo(Topo):
     self.add_link(h2, s0, port1=0, port2=2, **lconfig)
 
 
+
 def waitListening(client, server, port):
     "Wait until server is listening on port"
     if not 'telnet' in client.cmd('which telnet'):
@@ -104,7 +113,7 @@ def start_tcpprobe():
 def stop_tcpprobe():
     os.system("killall -9 cat; rmmod tcp_probe &>/dev/null;")
 
-def run_outcast(net, n_h1, n_h2):
+def run_outcast(net, n_h1, n_h2, rto_min, queue_size):
     "Run experiment"
 
     seconds = args.time
@@ -120,6 +129,17 @@ def run_outcast(net, n_h1, n_h2):
     h1 = net.getNodeByName('h1')
     h2 = net.getNodeByName('h2')
 
+    print 'Setting minRTO on each host...'
+    # TODO(bhelsley): I think this can be done with os.system anyway.
+    cmd = 'ip route replace dev %%s-eth0 rto_min %s' % rto_min
+    print '  h0 ', recvr.cmd(cmd % 'h0')
+    print '  h1 ', h1.cmd(cmd % 'h1')
+    print '  h2 ', h2.cmd(cmd % 'h2')
+
+    print 'Setting queue size to %s...' % queue_size
+    cmd = ("tc qdisc change dev %s parent 1:1 "
+           "handle 10: netem limit %s" % ('s0-eth0', '16kb'))
+
     # Start the receiver
     port = 5001
     recvr.cmd('iperf -s -p', port,
@@ -128,10 +148,10 @@ def run_outcast(net, n_h1, n_h2):
     waitListening(h1, recvr, port)
 
     for i in xrange(n_h1):
-        h1.cmd('iperf -Z reno -c %s -p %s -t %d -i 1 -yc > %s/iperf_%s.%d.txt &' % (
+        h1.cmd('iperf -Z bic -c %s -p %s -t %d -i 1 -yc > %s/iperf_%s.%d.txt &' % (
             recvr.IP(), 5001, seconds, args.dir, 'h1', i))
     for i in xrange(n_h2):
-        h2.cmd('iperf -Z reno -c %s -p %s -t %d -i 1 -yc > %s/iperf_%s.%d.txt &' % (
+        h2.cmd('iperf -Z bic -c %s -p %s -t %d -i 1 -yc > %s/iperf_%s.%d.txt &' % (
             recvr.IP(), 5001, seconds, args.dir, 'h2', i))
 
     # TODO(bhelsley): intelligent wait to detect when client iperf processes
@@ -188,6 +208,8 @@ def main():
     topo = SingleSwitchOutcastTopo()
 
     host = custom(CPULimitedHost, cpu=.15)  # 15% of system bandwidth
+    # TODO(bhelsley): can max_queue_size be used to set the queues instead of
+    # later running the "tc qdisc ..." command?
     link = custom(TCLink, bw=args.bw, delay='1ms',
                   max_queue_size=200)
 
@@ -207,7 +229,8 @@ def main():
       print pair, '=', result
 
     cprint("*** Running experiment", "magenta")
-    run_outcast(net, n_h1=args.n1, n_h2=args.n2)
+    run_outcast(net, n_h1=args.n1, n_h2=args.n2, rto_min=args.rto_min,
+                queue_size=args.queue_size)
 
     net.stop()
     end = time()
