@@ -1,0 +1,10 @@
+
+# Build ripl:
+cd ripl
+sudo python setup.py develop
+cd -
+
+# Build riplpox:
+cd riplpox
+sudo python setup.py develop
+cd -
