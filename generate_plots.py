@@ -60,9 +60,9 @@ def ComputeMbps(tcp_probe_records, bucket_size_ms, end_time_ms):
     buckets.setdefault(bucket, 0)
     buckets[bucket] += (8 * r.pkt_bytes)
 
-  n_buckets = int(float(end_time_ms) / bucket_size_ms)
-  one_mb = float(2**20) / bucket_size_ms
-  r = [buckets.get(x, 0) / one_mb for x in xrange(n_buckets)]
+  max_bucket = int(float(end_time_ms) / bucket_size_ms)
+  one_mbps = float(2**20) / 1000 * bucket_size_ms
+  r = [buckets.get(x, 0) / one_mbps for x in xrange(max_bucket)]
   return r
 
 def MakeFig(rows, cols):
