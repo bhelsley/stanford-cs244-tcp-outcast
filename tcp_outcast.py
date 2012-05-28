@@ -81,7 +81,7 @@ class SingleSwitchOutcastTopo(Topo):
     Topo.__init__(self, *args, **kwargs)
 
     hconfig = {}
-    lconfig = {}
+    lconfig = {'bw' : bw}
 
     h0 = self.add_host('h0')
     h1 = self.add_host('h1')
@@ -107,7 +107,7 @@ def waitListening(client, server, port):
         sleep(.5)
 
 def start_tcpprobe():
-    os.system("rmmod tcp_probe &>/dev/null; modprobe tcp_probe;")
+    os.system("rmmod tcp_probe 1> /dev/null 2>&1; modprobe tcp_probe;")
     Popen("cat /proc/net/tcpprobe > %s/tcp_probe.txt" % args.dir, shell=True)
 
 def stop_tcpprobe():
@@ -120,7 +120,7 @@ def run_outcast(net, n_h1, n_h2, rto_min, queue_size):
 
     # Start the bandwidth and cwnd monitors in the background
     monitor = Process(target=monitor_devs_ng,
-            args=('%s/bwm.txt' % args.dir, 1.0))
+                      args=('%s/bwm.txt' % args.dir, 1.0))
     monitor.start()
     start_tcpprobe()
 
@@ -225,7 +225,7 @@ def main():
     net.pingAll()
 
     cprint("*** Testing bandwidth", "blue")
-    for pair, result in check_bandwidth(net).iteritems():
+    for pair, result in check_bandwidth(net, test_rate=('%sM' % args.bw)).iteritems():
       print pair, '=', result
 
     cprint("*** Running experiment", "magenta")
