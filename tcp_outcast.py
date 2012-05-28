@@ -113,6 +113,10 @@ def start_tcpprobe():
 def stop_tcpprobe():
     os.system("killall -9 cat; rmmod tcp_probe")
 
+def start_tcpdump(iface):
+    Popen("tcpdump -n -S -i %s > %s/tcp_dump.%s.txt" % (iface, args.dir, iface),
+          shell=True)
+
 def run_outcast(net, receiver, hosts_2hop, hosts_6hop, n_2hops, n_6hops,
                 rto_min, queue_size):
     """Run outcast experiment.
@@ -154,7 +158,9 @@ def run_outcast(net, receiver, hosts_2hop, hosts_6hop, n_2hops, n_6hops,
                       args=('%s/bwm.txt' % args.dir, 1.0))
     monitor.start()
     start_tcpprobe()
-    
+
+    # TODO(bhelsley): This assumes s0-eth0 is going to be the bottleneck link.
+    start_tcpdump("s0-eth0")    
 
     print 'Starting flows...'
 
@@ -245,8 +251,6 @@ def main():
     topo = SingleSwitchOutcastTopo()
 
     host = custom(CPULimitedHost, cpu=.15)  # 15% of system bandwidth
-    # TODO(bhelsley): can max_queue_size be used to set the queues instead of
-    # later running the "tc qdisc ..." command?
     link = custom(TCLink, bw=args.bw, delay='0.1ms',
                   max_queue_size=200)
 
