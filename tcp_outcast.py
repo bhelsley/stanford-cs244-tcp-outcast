@@ -144,7 +144,7 @@ def run_outcast(net, receiver, hosts_2hop, hosts_6hop, n_2hops, n_6hops,
     # TODO(bhelsley): This assumes s0-eth0 is going to be the bottleneck link.
     start_tcpdump("s0-eth0")
 
-    print 'Setting minRTO on each host...'
+    print 'Setting minRTO to %s on each host...' % rto_min
     # TODO(bhelsley): I think this can be done with os.system anyway.
     cmd = 'ip route replace dev %%s-eth0 rto_min %s' % rto_min
     # for receiver.
@@ -156,11 +156,12 @@ def run_outcast(net, receiver, hosts_2hop, hosts_6hop, n_2hops, n_6hops,
     for host in hosts_6hop:
         print '  %s  %s' % (str(host), host.cmd(cmd % str(host)))
 
-    # TODO(harshit): Set it for all switches agnostic of topography.
     print 'Setting queue size to %s for all switches...' % queue_size
-    cmd = ("tc qdisc change dev %s parent 1:1 "
-           "handle 10: netem limit %s" % ('s0-eth0', queue_size))
-    os.system(cmd)
+    for s in net.switches:
+      for intf in s.intfNames():
+        cmd = ("tc qdisc change dev %s parent 1:1 "
+               "handle 10: netem limit %s" % (intf, queue_size))
+        print '  %s' % intf, os.system(cmd)
 
     print 'Starting flows...'
 
