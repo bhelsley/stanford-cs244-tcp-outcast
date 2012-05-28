@@ -107,11 +107,11 @@ def waitListening(client, server, port):
         sleep(.5)
 
 def start_tcpprobe():
-    os.system("rmmod tcp_probe 1> /dev/null 2>&1; modprobe tcp_probe;")
+    os.system("rmmod tcp_probe 1> /dev/null 2>&1; modprobe tcp_probe full=1 port=5001 bufsize=102400")
     Popen("cat /proc/net/tcpprobe > %s/tcp_probe.txt" % args.dir, shell=True)
 
 def stop_tcpprobe():
-    os.system("killall -9 cat; rmmod tcp_probe &>/dev/null;")
+    os.system("killall -9 cat; rmmod tcp_probe")
 
 def run_outcast(net, receiver, hosts_2hop, hosts_6hop, n_2hops, n_6hops,
                 rto_min, queue_size):
@@ -131,12 +131,6 @@ def run_outcast(net, receiver, hosts_2hop, hosts_6hop, n_2hops, n_6hops,
 
     seconds = args.time
 
-    # Start the bandwidth and cwnd monitors in the background
-    monitor = Process(target=monitor_devs_ng,
-                      args=('%s/bwm.txt' % args.dir, 1.0))
-    monitor.start()
-    start_tcpprobe()
-
     print 'Setting minRTO on each host...'
     # TODO(bhelsley): I think this can be done with os.system anyway.
     cmd = 'ip route replace dev %%s-eth0 rto_min %s' % rto_min
@@ -155,6 +149,13 @@ def run_outcast(net, receiver, hosts_2hop, hosts_6hop, n_2hops, n_6hops,
            "handle 10: netem limit %s" % ('s0-eth0', queue_size))
     os.system(cmd)
 
+    # Start the bandwidth and cwnd monitors in the background
+    monitor = Process(target=monitor_devs_ng,
+                      args=('%s/bwm.txt' % args.dir, 1.0))
+    monitor.start()
+    start_tcpprobe()
+    
+
     print 'Starting flows...'
 
     # Start the receiver
@@ -168,13 +169,15 @@ def run_outcast(net, receiver, hosts_2hop, hosts_6hop, n_2hops, n_6hops,
 
     # Start flows from 2 hop hosts.
     for host in hosts_2hop:
+        host.cmd('tcpdump > %s/tcp_dump_%s.txt &' % (
+                args.dir, str(host)))
         for i in xrange(n_2hops):
-            host.cmd('iperf -Z bic -c %s -p %s -t %d -i 1 -yc >'
+            host.cmd('iperf -Z reno -c %s -p %s -t %d -i 1 -yc >'
                      ' %s/iperf_%s.%d.txt &' % (
                     receiver.IP(), 5001, seconds, args.dir, str(host), i))
     for host in hosts_6hop:
         for i in xrange(n_6hops):
-            host.cmd('iperf -Z bic -c %s -p %s -t %d -i 1 -yc >'
+            host.cmd('iperf -Z reno -c %s -p %s -t %d -i 1 -yc >'
                      ' %s/iperf_%s.%d.txt &' % (
                     receiver.IP(), 5001, seconds, args.dir, str(host), i))
 
@@ -183,6 +186,8 @@ def run_outcast(net, receiver, hosts_2hop, hosts_6hop, n_2hops, n_6hops,
     sleep(seconds + 5)
 
     print 'Ending flows...'
+    for host in hosts_2hop:
+        host.cmd('kill %tcpdump')
     receiver.cmd('kill %iperf')
 
     # Shut down monitors
@@ -242,7 +247,7 @@ def main():
     host = custom(CPULimitedHost, cpu=.15)  # 15% of system bandwidth
     # TODO(bhelsley): can max_queue_size be used to set the queues instead of
     # later running the "tc qdisc ..." command?
-    link = custom(TCLink, bw=args.bw, delay='1ms',
+    link = custom(TCLink, bw=args.bw, delay='0.1ms',
                   max_queue_size=200)
 
     net = Mininet(topo=topo, host=host, link=link)
@@ -256,10 +261,11 @@ def main():
 
     net.pingAll()
 
+    """
     cprint("*** Testing bandwidth", "blue")
     for pair, result in check_bandwidth(net, test_rate=('%sM' % args.bw)).iteritems():
       print pair, '=', result
-
+    """
     cprint("*** Running experiment", "magenta")
     run_single_switch_outcast(net)
 
