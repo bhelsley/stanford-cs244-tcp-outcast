@@ -245,8 +245,7 @@ def main():
     link = custom(TCLink, bw=args.bw, delay='1ms',
                   max_queue_size=200)
 
-    net = Mininet(topo=topo, host=host, link=link,
-                  controller=RemoteController)
+    net = Mininet(topo=topo, host=host, link=link)
 
     net.start()
 
