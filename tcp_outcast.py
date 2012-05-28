@@ -113,6 +113,10 @@ def start_tcpprobe():
 def stop_tcpprobe():
     os.system("killall -9 cat; rmmod tcp_probe &>/dev/null;")
 
+def start_tcpdump(iface):
+    Popen("tcpdump -n -S -i %s > %s/tcp_dump.%s.txt" % (iface, args.dir, iface),
+          shell=True)
+
 def run_outcast(net, n_h1, n_h2, rto_min, queue_size):
     "Run experiment"
 
@@ -123,6 +127,10 @@ def run_outcast(net, n_h1, n_h2, rto_min, queue_size):
             args=('%s/bwm.txt' % args.dir, 1.0))
     monitor.start()
     start_tcpprobe()
+
+    start_tcpdump("s0-eth0")
+    start_tcpdump("s0-eth1")
+    start_tcpdump("s0-eth2")
 
     # Get receiver and clients
     recvr = net.getNodeByName('h0')
@@ -136,9 +144,12 @@ def run_outcast(net, n_h1, n_h2, rto_min, queue_size):
     print '  h1 ', h1.cmd(cmd % 'h1')
     print '  h2 ', h2.cmd(cmd % 'h2')
 
-    print 'Setting queue size to %s...' % queue_size
-    cmd = ("tc qdisc change dev %s parent 1:1 "
-           "handle 10: netem limit %s" % ('s0-eth0', '16kb'))
+    print 'Setting interface queue sizes to %s...' % queue_size
+    for iface in ['s0-eth0', 's0-eth1', 's0-eth2']:
+      cmd = ("tc qdisc change dev %s parent 1:1 "
+             "handle 10: netem limit %s" % (iface, queue_size))
+      print '  ', iface, os.system(cmd)
+
 
     # Start the receiver
     port = 5001
@@ -208,8 +219,6 @@ def main():
     topo = SingleSwitchOutcastTopo()
 
     host = custom(CPULimitedHost, cpu=.15)  # 15% of system bandwidth
-    # TODO(bhelsley): can max_queue_size be used to set the queues instead of
-    # later running the "tc qdisc ..." command?
     link = custom(TCLink, bw=args.bw, delay='1ms',
                   max_queue_size=200)
 
@@ -225,7 +234,7 @@ def main():
     net.pingAll()
 
     cprint("*** Testing bandwidth", "blue")
-    for pair, result in check_bandwidth(net).iteritems():
+    for pair, result in check_bandwidth(net, test_rate='%fM' % args.bw).iteritems():
       print pair, '=', result
 
     cprint("*** Running experiment", "magenta")

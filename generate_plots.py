@@ -1,3 +1,5 @@
+import datetime
+import re
 import sys
 import argparse
 import collections
@@ -10,6 +12,11 @@ TcpProbeRecord = collections.namedtuple(
     'TcpProbeRecord',
     ['timestamp', 'sender', 'receiver', 'pkt_bytes', 'next_seqno',
      'unacked_seqno', 'cwnd', 'slow_start_threshold', 'send_window'])
+
+SimplePktRecord = collections.namedtuple(
+    'SimplePktRecord',
+    ['timestamp', 'sender', 'receiver', 'pkt_bytes'])
+
 
 
 def ParseTcpProbe(fd, filter_fn=None):
@@ -44,6 +51,47 @@ def ParseTcpProbe(fd, filter_fn=None):
   result = {}
   for l in fd:
     r = _ParseLine(l)
+    if not r or (filter_fn and not filter_fn(r)):
+      continue
+    flow_id = '%s-%s' % (r.sender, r.receiver)
+    result.setdefault(flow_id, []).append(r)
+
+  return result
+
+
+def ParseTcpDump(fd, filter_fn=None):
+  """Parse TCP dump output from a file-like object."""
+  parse_re = re.compile(r'([^ ]+) IP ([^ ]+) > ([^ ]+):.* length (.+)')
+
+  def _GetTimestamp(time_str):
+    # You'd *think* python datetime would make this easier.
+    d = datetime.datetime.strptime(time_str, '%H:%M:%S.%f')
+    # Pro-tip: don't run this at midnight.
+    ts = d.hour * 60 * 60
+    ts += d.minute * 60
+    ts += d.second
+    ts += d.microsecond / 10.0**6
+    return ts
+
+  def _ParseLine(l, first_ts):
+    # tcpdump output has a very complex output.  The standard output for a tcp packet is
+    # roughly the following:
+    # HH:MM:SS.uS IP <sender> <receiver>: (ack, seq, etc...), length <bytes>
+    m = parse_re.match(l)
+    if m:
+      time_str, sender, receiver, pkt_bytes = m.groups()
+      sender = ':'.join(sender.rsplit('.', 1))
+      receiver = ':'.join(receiver.rsplit('.', 1))
+      ts = _GetTimestamp(time_str)
+      if first_ts[0] is None:
+        first_ts[0] = ts
+      ts -= first_ts[0]
+      return SimplePktRecord(ts, sender, receiver, int(pkt_bytes))
+
+  result = {}
+  first_ts = [None]
+  for l in fd:
+    r = _ParseLine(l, first_ts)
     if not r or (filter_fn and not filter_fn(r)):
       continue
     flow_id = '%s-%s' % (r.sender, r.receiver)
@@ -113,7 +161,7 @@ def PlotMbpsSummary(ax, tcp_probe_data, bucket_size_ms, end_time_ms, title=None)
   # Compute mean and median for first, middle, and last third.
   host_data = {}
   for key, values in tcp_probe_data.iteritems():
-    host = key.split(':')[0]
+    host = key.split(':', 1)[0]
     mbps = ComputeMbps(values, bucket_size_ms, end_time_ms)
     first, middle, last = host_data.setdefault(host, ([], [], []))
     n = len(mbps)
@@ -141,10 +189,25 @@ def PlotMbpsSummary(ax, tcp_probe_data, bucket_size_ms, end_time_ms, title=None)
   if title:
     ax.set_title(title)
 
+def MakePlot(data, outfile, args):
+  if not args.skip_instant:
+    fig = MakeFig(1, 2)
+    ax = fig.add_subplot(1, 2, 1)
+    PlotMbpsInstant(ax, data, args.bucket_size_ms, args.end_time_ms, args.instant_title,
+                    args.outcast_host)
+    ax = fig.add_subplot(1, 2, 2)
+    PlotMbpsSummary(ax, data, args.bucket_size_ms, args.end_time_ms, args.summary_title)
+  else:
+    fig = MakeFig(1, 1)
+    ax = fig.add_subplot(1, 1, 1)
+    PlotMbpsSummary(ax, data, args.bucket_size_ms, args.end_time_ms, args.summary_title)
+
+  matplotlib.pyplot.savefig(outfile)
 
 def main():
   parser = argparse.ArgumentParser()
-  parser.add_argument('-f', dest='files', nargs='+', required=True)
+  parser.add_argument('--tcpdump')
+  parser.add_argument('--tcpprobe')
   parser.add_argument('-r', dest='receiver', required=True)
   parser.add_argument('-o', dest='out', required=True)
   parser.add_argument('--instant_title', dest='instant_title')
@@ -156,22 +219,15 @@ def main():
   parser.add_argument('--outcast_host', default='10.0.0.2')
   args = parser.parse_args()
 
-  for f in args.files:
-    with open(f) as fd:
-      data = ParseTcpProbe(fd, lambda(x): x.receiver == args.receiver)
-      if not args.skip_instant:
-        fig = MakeFig(1, 2)
-        ax = fig.add_subplot(1, 2, 1)
-        PlotMbpsInstant(ax, data, args.bucket_size_ms, args.end_time_ms, args.instant_title,
-                        args.outcast_host)
-        ax = fig.add_subplot(1, 2, 2)
-        PlotMbpsSummary(ax, data, args.bucket_size_ms, args.end_time_ms, args.summary_title)
-      else:
-        fig = MakeFig(1, 1)
-        ax = fig.add_subplot(1, 1, 1)
-        PlotMbpsSummary(ax, data, args.bucket_size_ms, args.end_time_ms, args.summary_title)
 
-      matplotlib.pyplot.savefig(args.out)
+  if args.tcpdump:
+    with open(args.tcpdump) as fd:
+      data = ParseTcpDump(fd, lambda(x): x.receiver == args.receiver)
+      MakePlot(data, args.out + '.tcpdump.png', args)
+  if args.tcpprobe:
+    with open(args.tcpprobe) as fd:
+      data = ParseTcpProbe(fd, lambda(x): x.receiver == args.receiver)
+      MakePlot(data, args.out + '.tcpprobe.png', args)
 
 
 if __name__ == '__main__':
