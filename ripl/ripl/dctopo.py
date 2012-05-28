@@ -261,7 +261,7 @@ class FatTreeTopo(StructuredTopo):
                 self.dpid = (pod << 16) + (sw << 8) + host
 
         def __str__(self):
-            return "(%i, %i, %i)" % (self.pod, self.sw, self.host)
+            return self.name_str()
 
         def name_str(self):
             '''Return name string'''
@@ -270,6 +270,9 @@ class FatTreeTopo(StructuredTopo):
         def mac_str(self):
             '''Return MAC string'''
             return "00:00:00:%02x:%02x:%02x" % (self.pod, self.sw, self.host)
+
+        def IP(self):
+            return self.ip_str()
 
         def ip_str(self):
             '''Return IP string'''
