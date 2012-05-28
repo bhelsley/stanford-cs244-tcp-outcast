@@ -55,6 +55,10 @@ class StaticShortestPathRouting(Routing):
         super(StaticShortestPathRouting, self).__init__(topo)
 
     def _get_host_destination_id(self, dst_sw, dst_port):
+        """Each end host is assigned a destination id which helps in choosing
+        a path to that host. IP or MAC addresses don't help as their distribution
+        is not uniform.
+        """
         return ((dst_sw.pod * self.topo.k * self.topo.k / 4) +
                 dst_sw.sw * self.topo.k/2 +
                 self._PORT_HOST_MAP[dst_port])
@@ -72,17 +76,30 @@ class StaticShortestPathRouting(Routing):
         dst_id = self._get_host_destination_id(dst_sw, out_port)
         #lg.info('Destination host id: %d' % dst_id)
         
-        # Choose the aggregation switch.
-        agg_sw = self.topo.id_gen(pod=src_sw.pod,
-                                  sw=self._AGG_SW_DST_BIT_NUM_MAP[dst_id % 2],
-                                  host=1)
+        path = [src]
+
+        if self.topo.layer(src) == self.topo.LAYER_EDGE:
+            # Choose the aggregation switch.
+            agg_sw = self.topo.id_gen(pod=src_sw.pod,
+                                      sw=self._AGG_SW_DST_BIT_NUM_MAP[dst_id % 2],
+                                      host=1)
+            path.append(agg_sw.name_str())
         if src_sw.pod == dst_sw.pod:
-            return [src, agg_sw.name_str(), dst]
-        # Choose the core switch.
-        core_sw_num = self._CORE_SW_DST_BITS_MAP[dst_id % 4]
-        core_sw = self.topo.id_gen(pod=4, sw=core_sw_num[0], host=core_sw_num[1])
+            path.append(dst)
+            return path
+
+        if self.topo.layer(src) != self.topo.LAYER_CORE:
+            # Choose the core switch.
+            core_sw_num = self._CORE_SW_DST_BITS_MAP[dst_id % 4]
+            core_sw = self.topo.id_gen(pod=4, sw=core_sw_num[0], host=core_sw_num[1])
+            path.append(core_sw.name_str())
+        else:
+            core_sw = src_sw
+
         dst_agg_sw = self.topo.id_gen(pod=dst_sw.pod, sw=core_sw.sw+1, host=1)
-        return [src, agg_sw.name_str(), core_sw.name_str(), dst_agg_sw.name_str(), dst]
+        path.append(dst_agg_sw.name_str())
+        path.append(dst)
+        return path
 
 
 class StructuredRouting(Routing):
