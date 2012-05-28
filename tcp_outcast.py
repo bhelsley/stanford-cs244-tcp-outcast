@@ -11,6 +11,7 @@ from mininet.node import CPULimitedHost, RemoteController
 from mininet.link import TCLink
 from mininet.util import irange, custom, quietRun, dumpNetConnections
 from mininet.cli import CLI
+from ripl.ripl.dctopo import FatTreeTopo
 
 from time import sleep, time
 from multiprocessing import Process
@@ -53,7 +54,7 @@ parser.add_argument('--rto_min',
 
 parser.add_argument('--queue_size',
                     help=('queue size to set on switch.'),
-                    default='16KB')
+                    default='11')
 
 parser.add_argument('--time', '-t',
                     dest="time",
@@ -66,8 +67,21 @@ parser.add_argument('--bw', '-b',
                     help="Bandwidth of network links (in Mbps)",
                     default=10)
 
+parser.add_argument('--ft',
+                    type=bool,
+                    help="Whether to experiment on FatTreeTopology",
+                    default=False)
+
+parser.add_argument('--iperf',
+                    dest="iperf",
+                    help="Path to custom iperf",
+                    default='/usr/bin/iperf')
+
 # Expt parameters
 args = parser.parse_args()
+
+CUSTOM_IPERF_PATH = args.iperf
+assert(os.path.exists(CUSTOM_IPERF_PATH))
 
 if not os.path.exists(args.dir):
     os.makedirs(args.dir)
@@ -89,9 +103,9 @@ class SingleSwitchOutcastTopo(Topo):
 
     s0 = self.add_switch('s0')
 
-    self.add_link(h0, s0, port1=0, port2=0, **lconfig)
-    self.add_link(h1, s0, port1=0, port2=1, **lconfig)
-    self.add_link(h2, s0, port1=0, port2=2, **lconfig)
+    self.add_link(h0, s0, port1=0, port2=1, **lconfig)
+    self.add_link(h1, s0, port1=0, port2=2, **lconfig)
+    self.add_link(h2, s0, port1=0, port2=3, **lconfig)
 
 
 
@@ -107,7 +121,8 @@ def waitListening(client, server, port):
         sleep(.5)
 
 def start_tcpprobe():
-    os.system("rmmod tcp_probe 1> /dev/null 2>&1; modprobe tcp_probe full=1 port=5001 bufsize=102400")
+    os.system("rmmod tcp_probe 1> /dev/null 2>&1; "
+              "modprobe tcp_probe full=1 port=5001 bufsize=10240")
     Popen("cat /proc/net/tcpprobe > %s/tcp_probe.txt" % args.dir, shell=True)
 
 def stop_tcpprobe():
@@ -116,9 +131,17 @@ def stop_tcpprobe():
 def start_tcpdump(iface):
     Popen("tcpdump -n -S -i %s > %s/tcp_dump.%s.txt" % (iface, args.dir, iface),
           shell=True)
+    """
+    iface = 's0-eth2'
+    Popen("tcpdump -n -S -i %s > %s/tcp_dump.%s.txt" % (iface, args.dir, iface),
+          shell=True)
+    iface = 's0-eth3'
+    Popen("tcpdump -n -S -i %s > %s/tcp_dump.%s.txt" % (iface, args.dir, iface),
+          shell=True)
+    """
 
 def run_outcast(net, receiver, hosts_2hop, hosts_6hop, n_2hops, n_6hops,
-                rto_min, queue_size):
+                switch_iface, rto_min, queue_size):
     """Run outcast experiment.
 
     Args:
@@ -129,6 +152,8 @@ def run_outcast(net, receiver, hosts_2hop, hosts_6hop, n_2hops, n_6hops,
                   at 6 hops from receiver sending data to receiver.
       n_2hops: number of flows per 2-hop host.
       n_6hops: number of flows per 6-hop host.
+      switch_iface: the switch along with the interface connected to the
+                    receiver
       rto_min: RTO min time setting for each host as string.
       queue_size: Queue size of each switch.
     """
@@ -150,8 +175,19 @@ def run_outcast(net, receiver, hosts_2hop, hosts_6hop, n_2hops, n_6hops,
     # TODO(harshit): Set it for all switches agnostic of topography.
     print 'Setting queue size to %s for all switches...' % queue_size
     cmd = ("tc qdisc change dev %s parent 1:1 "
-           "handle 10: netem limit %s" % ('s0-eth0', queue_size))
+           "handle 10: netem limit %s" % (switch_iface, queue_size))
     os.system(cmd)
+
+    print 'Starting flows...'
+
+    # Start the receiver
+    port = 5001
+    receiver.cmd('%s -s -p' % CUSTOM_IPERF_PATH, port,
+                 '> %s/iperf_server.txt' % args.dir, '&')
+
+    # Wait till the receiver server comes up by picking any 2 hop
+    # host as client.
+    waitListening(hosts_2hop[0], receiver, port)
 
     # Start the bandwidth and cwnd monitors in the background
     monitor = Process(target=monitor_devs_ng,
@@ -159,41 +195,27 @@ def run_outcast(net, receiver, hosts_2hop, hosts_6hop, n_2hops, n_6hops,
     monitor.start()
     start_tcpprobe()
 
-    # TODO(bhelsley): This assumes s0-eth0 is going to be the bottleneck link.
-    start_tcpdump("s0-eth0")    
-
-    print 'Starting flows...'
-
-    # Start the receiver
-    port = 5001
-    receiver.cmd('iperf -s -p', port,
-                 '> %s/iperf_server.txt' % args.dir, '&')
-
-    # Wait till the receiver server comes up by picking any 2 hop
-    # host as client.
-    waitListening(hosts_2hop[0], receiver, port)
+    start_tcpdump(switch_iface)
 
     # Start flows from 2 hop hosts.
     for host in hosts_2hop:
-        host.cmd('tcpdump > %s/tcp_dump_%s.txt &' % (
-                args.dir, str(host)))
         for i in xrange(n_2hops):
-            host.cmd('iperf -Z reno -c %s -p %s -t %d -i 1 -yc >'
+            host.cmd('%s -Z bic -c %s -p %s -t %d -i 1 -yc >'
                      ' %s/iperf_%s.%d.txt &' % (
-                    receiver.IP(), 5001, seconds, args.dir, str(host), i))
+                    CUSTOM_IPERF_PATH, receiver.IP(), 5001, seconds,
+                    args.dir, str(host), i))
     for host in hosts_6hop:
         for i in xrange(n_6hops):
-            host.cmd('iperf -Z reno -c %s -p %s -t %d -i 1 -yc >'
+            host.cmd('%s -Z bic -c %s -p %s -t %d -i 1 -yc >'
                      ' %s/iperf_%s.%d.txt &' % (
-                    receiver.IP(), 5001, seconds, args.dir, str(host), i))
+                    CUSTOM_IPERF_PATH, receiver.IP(), 5001, seconds,
+                    args.dir, str(host), i))
 
     # TODO(bhelsley): intelligent wait to detect when client iperf processes
     # have exited.
-    sleep(seconds + 5)
+    sleep(seconds + 10)
 
     print 'Ending flows...'
-    for host in hosts_2hop:
-        host.cmd('kill %tcpdump')
     receiver.cmd('kill %iperf')
 
     # Shut down monitors
@@ -209,7 +231,7 @@ def check_prereqs():
                 'Could not find %s - make sure that it is '
                 'installed and in your $PATH') % p)
 
-def check_bandwidth(net, test_rate='100M'):
+def check_bandwidth(net, test_rate='100M', total_hosts=16):
   """Verify link bandwidth using iperf between hosts, and host to receiver."""
 
   parse_mbps_re = re.compile(r'(\d+\.?\d+) Mbits/sec')
@@ -227,12 +249,16 @@ def check_bandwidth(net, test_rate='100M'):
 
   # Measure the bandwidth between each pair of hosts in the topology.
   result = {}
+  num_hosts = 0
   for i, h1 in enumerate(net.hosts):
-    for h2 in net.hosts[i+1:]:
-      server_mbps, client_mbps = _GetIPerfResult(
-          [h1, h2], l4Type='UDP', udpBw=test_rate)
-      result[('%s@%s' % (str(h1), h1.IP()), '%s@%s' % (str(h2), h2.IP()))] = (
-          client_mbps, server_mbps)
+      for h2 in net.hosts[i+1:]:
+          if num_hosts > total_hosts:
+              break
+          num_hosts += 1
+          server_mbps, client_mbps = _GetIPerfResult(
+              [h1, h2], l4Type='UDP', udpBw=test_rate)
+          result[('%s@%s' % (str(h1), h1.IP()), '%s@%s' % (str(h2), h2.IP()))] = (
+              client_mbps, server_mbps)
 
   return result
 
@@ -241,18 +267,48 @@ def run_single_switch_outcast(net):
     h1 = net.getNodeByName('h1')
     h2 = net.getNodeByName('h2')
     run_outcast(net, recvr, [h1], [h2], n_2hops=args.n1, n_6hops=args.n2,
-                rto_min=args.rto_min, queue_size=args.queue_size)
+                switch_iface='s0-eth1', rto_min=args.rto_min,
+                queue_size=args.queue_size)
 
+def fat_tree_get_6hop_nodes(net, topo, host_name):
+    """Returns all 6 hop nodes from host."""
+    host_pod = topo.id_gen(name=host_name).pod
+
+    hosts_6hop = []
+    for node in topo.layer_nodes(FatTreeTopo.LAYER_HOST):
+        node_pod = topo.id_gen(name=node).pod
+        if host_pod != node_pod:
+            hosts_6hop.append(net.getNodeByName(node))
+
+    return hosts_6hop
+
+def run_fat_tree_outcast(net):
+    recvr = net.getNodeByName('0_0_2')
+    hosts_2hop = [net.getNodeByName('0_0_3')]
+    hosts_6hop = fat_tree_get_6hop_nodes(net, net.topo, '0_0_2')
+    if args.n2 < len(hosts_6hop):
+        n_6hops = 1
+        hosts_6hop = hosts_6hop[:args.n2]
+    else:
+        n_6hops = int(args.n2 / len(hosts_6hop))
+
+    run_outcast(net, recvr, hosts_2hop, hosts_6hop, n_2hops=args.n1,
+                n_6hops=n_6hops, switch_iface='0_0_1-eth2',
+                rto_min=args.rto_min,
+                queue_size=args.queue_size)
+    
 
 def main():
     "Create and run experiment"
     start = time()
 
-    topo = SingleSwitchOutcastTopo()
+    if args.ft:
+        topo = FatTreeTopo(4)
+    else:
+        topo = SingleSwitchOutcastTopo()
 
-    host = custom(CPULimitedHost, cpu=.15)  # 15% of system bandwidth
-    link = custom(TCLink, bw=args.bw, delay='0.1ms',
-                  max_queue_size=200)
+    host = custom(CPULimitedHost, cpu=1)
+    link = custom(TCLink, bw=args.bw, delay='0ms')
 
     net = Mininet(topo=topo, host=host, link=link)
 
@@ -265,13 +321,15 @@ def main():
 
     net.pingAll()
 
-    """
     cprint("*** Testing bandwidth", "blue")
     for pair, result in check_bandwidth(net, test_rate=('%sM' % args.bw)).iteritems():
       print pair, '=', result
-    """
+
     cprint("*** Running experiment", "magenta")
-    run_single_switch_outcast(net)
+    if args.ft:
+        run_fat_tree_outcast(net)
+    else:
+        run_single_switch_outcast(net)
 
     net.stop()
     end = time()
