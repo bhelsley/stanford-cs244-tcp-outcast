@@ -141,7 +141,7 @@ def start_tcpdump(iface):
     """
 
 def run_outcast(net, receiver, hosts_2hop, hosts_6hop, n_2hops, n_6hops,
-                switch_iface, rto_min, queue_size):
+                tcpdump_ifaces, rto_min, queue_size):
     """Run outcast experiment.
 
     Args:
@@ -152,8 +152,8 @@ def run_outcast(net, receiver, hosts_2hop, hosts_6hop, n_2hops, n_6hops,
                   at 6 hops from receiver sending data to receiver.
       n_2hops: number of flows per 2-hop host.
       n_6hops: number of flows per 6-hop host.
-      switch_iface: the switch along with the interface connected to the
-                    receiver
+      tcpdump_ifaces: A list of interfaces to monitor with tcpdump, identified by
+                      the switch along with the interface connected to the receiver
       rto_min: RTO min time setting for each host as string.
       queue_size: Queue size of each switch.
     """
@@ -198,7 +198,8 @@ def run_outcast(net, receiver, hosts_2hop, hosts_6hop, n_2hops, n_6hops,
     monitor.start()
     start_tcpprobe()
 
-    start_tcpdump(switch_iface)
+    for iface in tcpdump_ifaces:
+      start_tcpdump(iface)
 
     # Start flows from 2 hop hosts.
     for host in hosts_2hop:
@@ -270,7 +271,8 @@ def run_single_switch_outcast(net):
     h1 = net.getNodeByName('h1')
     h2 = net.getNodeByName('h2')
     run_outcast(net, recvr, [h1], [h2], n_2hops=args.n1, n_6hops=args.n2,
-                switch_iface='s0-eth1', rto_min=args.rto_min,
+                tcpdump_ifaces=['s0-eth1', 's0-eth2', 's0-eth3'],
+                rto_min=args.rto_min,
                 queue_size=args.queue_size)
 
 def fat_tree_get_6hop_nodes(net, topo, host_name):
@@ -296,10 +298,10 @@ def run_fat_tree_outcast(net):
         n_6hops = int(args.n2 / len(hosts_6hop))
 
     run_outcast(net, recvr, hosts_2hop, hosts_6hop, n_2hops=args.n1,
-                n_6hops=n_6hops, switch_iface='0_0_1-eth2',
+                n_6hops=n_6hops, tcpdump_ifaces=['0_0_1-eth2'],
                 rto_min=args.rto_min,
                 queue_size=args.queue_size)
-    
+
 
 def main():
     "Create and run experiment"

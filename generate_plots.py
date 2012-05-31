@@ -15,7 +15,7 @@ TcpProbeRecord = collections.namedtuple(
 
 SimplePktRecord = collections.namedtuple(
     'SimplePktRecord',
-    ['timestamp', 'sender', 'receiver', 'pkt_bytes'])
+    ['timestamp', 'sender', 'receiver', 'pkt_type', 'seqno', 'pkt_bytes'])
 
 
 
@@ -59,9 +59,9 @@ def ParseTcpProbe(fd, filter_fn=None):
   return result
 
 
-def ParseTcpDump(fd, filter_fn=None):
+def ParseTcpDump(fd, filter_fn=None, first_ts=None):
   """Parse TCP dump output from a file-like object."""
-  parse_re = re.compile(r'([^ ]+) IP ([^ ]+) > ([^ ]+):.* length (.+)')
+  parse_re = re.compile(r'([^ ]+) IP ([^ ]+) > ([^ ]+):[^,]+, (.{3}) ([^,]+),.* length (.+)')
 
   def _GetTimestamp(time_str):
     # You'd *think* python datetime would make this easier.
@@ -79,17 +79,18 @@ def ParseTcpDump(fd, filter_fn=None):
     # HH:MM:SS.uS IP <sender> <receiver>: (ack, seq, etc...), length <bytes>
     m = parse_re.match(l)
     if m:
-      time_str, sender, receiver, pkt_bytes = m.groups()
+      time_str, sender, receiver, pkt_type, seqno, pkt_bytes = m.groups()
       sender = ':'.join(sender.rsplit('.', 1))
       receiver = ':'.join(receiver.rsplit('.', 1))
       ts = _GetTimestamp(time_str)
       if first_ts[0] is None:
         first_ts[0] = ts
       ts -= first_ts[0]
-      return SimplePktRecord(ts, sender, receiver, int(pkt_bytes))
+      return SimplePktRecord(ts, sender, receiver, pkt_type, seqno, int(pkt_bytes))
 
   result = {}
-  first_ts = [None]
+  if not first_ts:
+    first_ts = [None]
   for l in fd:
     r = _ParseLine(l, first_ts)
     if not r or (filter_fn and not filter_fn(r)):
