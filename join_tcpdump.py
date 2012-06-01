@@ -65,6 +65,7 @@ def main():
       else:
         _, ts_next, src_next = v[-1]
         if not ingress_alias:
+          # Shouldn't happen. Setting to 'empty' to debug from the output.
           ingress_alias = 'empty'
         
         if src_next == src:
