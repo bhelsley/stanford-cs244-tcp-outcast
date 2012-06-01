@@ -131,14 +131,6 @@ def stop_tcpprobe():
 def start_tcpdump(iface):
     Popen("tcpdump -n -S -i %s > %s/tcp_dump.%s.txt" % (iface, args.dir, iface),
           shell=True)
-    """
-    iface = 's0-eth2'
-    Popen("tcpdump -n -S -i %s > %s/tcp_dump.%s.txt" % (iface, args.dir, iface),
-          shell=True)
-    iface = 's0-eth3'
-    Popen("tcpdump -n -S -i %s > %s/tcp_dump.%s.txt" % (iface, args.dir, iface),
-          shell=True)
-    """
 
 def run_outcast(net, receiver, hosts_2hop, hosts_6hop, n_2hops, n_6hops,
                 tcpdump_ifaces, rto_min, queue_size):
@@ -200,6 +192,9 @@ def run_outcast(net, receiver, hosts_2hop, hosts_6hop, n_2hops, n_6hops,
 
     for iface in tcpdump_ifaces:
       start_tcpdump(iface)
+
+    # Wait for tcpdump to start
+    sleep(5)
 
     # Start flows from 2 hop hosts.
     for host in hosts_2hop:

@@ -15,7 +15,8 @@ TcpProbeRecord = collections.namedtuple(
 
 SimplePktRecord = collections.namedtuple(
     'SimplePktRecord',
-    ['timestamp', 'sender', 'receiver', 'pkt_type', 'seqno', 'pkt_bytes'])
+    ['timestamp', 'sender', 'receiver', 'pkt_type', 'seqno', 'pkt_bytes',
+     'original_data'])
 
 
 
@@ -86,7 +87,8 @@ def ParseTcpDump(fd, filter_fn=None, first_ts=None):
       if first_ts[0] is None:
         first_ts[0] = ts
       ts -= first_ts[0]
-      return SimplePktRecord(ts, sender, receiver, pkt_type, seqno, int(pkt_bytes))
+      return SimplePktRecord(ts, sender, receiver, pkt_type, seqno, int(pkt_bytes),
+                             l)
 
   result = {}
   if not first_ts:
