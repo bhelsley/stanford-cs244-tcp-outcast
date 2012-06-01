@@ -193,6 +193,40 @@ def PlotMbpsSummary(ax, tcp_probe_data, bucket_size_ms, end_time_ms,
   if title:
     ax.set_title(title)
 
+
+def PlotDropCounts(ax, tcp_probe_join_file, end_time_ms):
+  drops = {}
+  with open(tcp_probe_join_file) as fd:
+    for l in fd:
+      if l.startswith('#'):
+        continue
+      tokens = l.split(',')
+      ingress_iface = tokens[5]
+
+      ts = float(tokens[6])
+      if ts * 1000 > end_time_ms:
+        break
+
+      event_type = tokens[7]
+      if event_type != 'DROP':
+        continue
+
+      if ingress_iface not in drops:
+        drops[ingress_iface] = [(0, 0)]
+      drop_count = drops[ingress_iface][-1][1]
+      drops[ingress_iface].append((ts, drop_count))
+      drops[ingress_iface].append((ts, drop_count + 1))
+
+  for label, values in drops.iteritems():
+    x_val = [v[0] for v in values]
+    y_val = [v[1] for v in values]
+    ax.plot(x_val, y_val, lw=2, label=label)
+  ax.grid(True)
+  ax.legend(loc='lower right')
+  ax.set_xlabel("seconds")
+  ax.set_ylabel("cumulative drops")
+
+
 def MakePlot(data, outfile, args):
   if not args.skip_instant:
     fig = MakeFig(1, 2)
@@ -214,6 +248,7 @@ def main():
   parser = argparse.ArgumentParser()
   parser.add_argument('--tcpdump')
   parser.add_argument('--tcpprobe')
+  parser.add_argument('--tcpdump_join')
   parser.add_argument('-r', dest='receiver', required=True)
   parser.add_argument('-o', dest='out', required=True)
   parser.add_argument('--instant_title', dest='instant_title')
@@ -235,6 +270,11 @@ def main():
       data = ParseTcpProbe(fd, lambda(x): x.receiver == args.receiver)
       if data:
         MakePlot(data, args.out + '.tcpprobe.png', args)
+  if args.tcpdump_join:
+    fig = MakeFig(1, 1)
+    ax = fig.add_subplot(1, 1, 1)
+    PlotDropCounts(ax, args.tcpdump_join, args.end_time_ms)
+    matplotlib.pyplot.savefig(args.out + '.drops.png')
 
 
 if __name__ == '__main__':
