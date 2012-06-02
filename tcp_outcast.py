@@ -77,6 +77,10 @@ parser.add_argument('--iperf',
                     help="Path to custom iperf",
                     default='/usr/bin/iperf')
 
+parser.add_argument('--impatient',
+                    type=bool,
+                    default=False)
+
 # Expt parameters
 args = parser.parse_args()
 
@@ -322,8 +326,11 @@ def main():
     net.pingAll()
 
     cprint("*** Testing bandwidth", "blue")
-    for pair, result in check_bandwidth(net, test_rate=('%sM' % args.bw)).iteritems():
-      print pair, '=', result
+    if not args.impatient:
+      for pair, result in check_bandwidth(net, test_rate=('%sM' % args.bw)).iteritems():
+        print pair, '=', result
+    else:
+      print '  skipped'
 
     cprint("*** Running experiment", "magenta")
     if args.ft:
