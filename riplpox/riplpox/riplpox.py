@@ -173,6 +173,15 @@ class RipLController(EventMixin):
       log.info("Woo!  All switches up")
       self.all_switches_up = True
 
+  def _handle_ConnectionDown(self, event):
+    sw_str = dpidToStr(event.dpid)
+    log.info("Disconnecting switch: %s, %s", event.dpid, sw_str)
+    sw = self.switches.pop(event.dpid, None)
+    if sw is None:
+      log.info('No such switch: %s', sw_str)
+    else:
+      self.all_switches_up = False
+    
 
 def launch(topo = None, routing = None):
   """
