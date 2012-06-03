@@ -177,6 +177,14 @@ DATA_DISTRIBUTION = [0.2, 0.4]
 def _GetIndex(n, bucket):
   return int(n * DATA_DISTRIBUTION[bucket])
 
+def _AddBandwidth(a1, a2):
+  if not a1:
+    a1.extend(a2)
+  else:
+    assert len(a1) == len(a2)
+    for i in range(len(a1)):
+      a1[i] += a2[i]
+
 def PlotMbpsSummary(ax, tcp_probe_data, bucket_size_ms, end_time_ms,
                     start_time_ms,
                     outcast_host, title=None):
@@ -192,9 +200,9 @@ def PlotMbpsSummary(ax, tcp_probe_data, bucket_size_ms, end_time_ms,
     flow_stats.append((s[0], key, s))
     first, middle, last = host_data.setdefault(host, ([], [], []))
     n = len(mbps)
-    first.extend(mbps[:_GetIndex(n, 0)])  # first 20%
-    middle.extend(mbps[:_GetIndex(n, 1)])  # first 40%
-    last.extend(mbps)  # everything
+    _AddBandwidth(first, mbps[:_GetIndex(n, 0)])  # first 20%
+    _AddBandwidth(middle, mbps[:_GetIndex(n, 1)])  # first 40%
+    _AddBandwidth(last, mbps)  # everything
 
   if flow_stats:
     flow_stats.sort(reverse=True)

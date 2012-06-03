@@ -115,15 +115,21 @@ class RipLController(EventMixin):
       in_port = event.port
       t = self.t
 
-      # Learn MAC address of the sender on every packet-in.
-      self.macTable[packet.src] = (dpid, in_port)
+      in_sw = self.t.id_gen(dpid=dpid)
+      # Learn MAC address of the sender on every packet-in for only EDGE switches.
+      if in_sw.pod != 4 and (in_sw.sw == 0 or in_sw.sw == 1) and (in_port == 2 or in_port == 4):
+        self.macTable[packet.src] = (dpid, in_port)
   
       #log.info("mactable: %s" % self.macTable)
   
       # Insert flow, deliver packet directly to destination.
       if packet.dst in self.macTable:
         out_dpid, out_port = self.macTable[packet.dst]
-        self._install_path(event, out_dpid, out_port, packet)
+        try:
+          self._install_path(event, out_dpid, out_port, packet)
+        except Exception as e:
+          log.info('event = %s, out_dpid = %s, out_port = %s, packet = %s' % (event, out_dpid, out_port, packet))
+          raise e
 
         #log.info("sending to entry in mactable: %s %s" % (out_dpid, out_port))
         self.switches[out_dpid].send_packet_data(out_port, event.data)
