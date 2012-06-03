@@ -177,8 +177,6 @@ def run_outcast(net, receiver, hosts_2hop, hosts_6hop, n_2hops, n_6hops,
                "handle 10: netem limit %s" % (intf, queue_size))
         print '  %s' % intf, os.system(cmd)
 
-    print 'Starting flows...'
-
     # Start the receiver
     port = 5001
     receiver.cmd('%s -s -p' % CUSTOM_IPERF_PATH, port,
@@ -199,6 +197,8 @@ def run_outcast(net, receiver, hosts_2hop, hosts_6hop, n_2hops, n_6hops,
 
     # Wait for tcpdump to start
     sleep(5)
+
+    print 'Starting flows...'
 
     # Start flows from 2 hop hosts.
     for host in hosts_2hop:
@@ -297,7 +297,8 @@ def run_fat_tree_outcast(net):
         n_6hops = int(args.n2 / len(hosts_6hop))
 
     run_outcast(net, recvr, hosts_2hop, hosts_6hop, n_2hops=args.n1,
-                n_6hops=n_6hops, tcpdump_ifaces=['0_0_1-eth2'],
+                n_6hops=n_6hops,
+                tcpdump_ifaces=['0_0_1-eth2', '0_0_1-eth1', '0_0_1-eth3', '0_0_1-eth4'],
                 rto_min=args.rto_min,
                 queue_size=args.queue_size)
 

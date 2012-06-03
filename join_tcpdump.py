@@ -76,24 +76,27 @@ def main():
       sender_ip, _ = record.sender.split(':')
       receiver_ip, _ = record.receiver.split(':')
 
-      if swiface_ip_map[src] == sender_ip:
+      if swiface_ip_map.get(src) == sender_ip:
         ingress_alias = src
         ingress_ts = '%f' % ts
-      elif swiface_ip_map[src] == receiver_ip:
+      elif swiface_ip_map.get(src) == receiver_ip:
         egress_alias = src
         egress_ts = '%f' % ts
 
       if not v:
         event_type = 'DROP'
+        if not ingress_alias:
+          ingress_alias = src
+          ingress_ts = '%f' % ts
       else:
         _, ts_next, src_next = v[-1]
-        if not ingress_alias:
-          # Shouldn't happen. Setting to 'empty' to debug from the output.
-          ingress_alias = 'empty'
         
         if src_next == src:
           event_type = 'UNKNOWN'
         else:
+          if not ingress_alias:
+            ingress_alias = src
+            ingress_ts = '%f' % ts
           egress_alias = src_next
           egress_ts = '%f' % ts_next
           event_type = 'FOUND'
