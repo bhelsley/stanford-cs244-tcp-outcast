@@ -1,5 +1,7 @@
 #!/bin/sh
 
+NUM_EXP_PER_CONFIG=10
+
 safe_mkdir() {
     dir=$1
     echo $dir
@@ -19,8 +21,8 @@ run_single_experiment() {
     subdir="$results_dir/fattree_${n1}_${n2}"
     safe_mkdir $subdir
 
-    echo -e "Running experiment with $n1 2-hop flows and $n2 6-hop flows.\n"
-    for i in `seq 1 10`; do 
+    echo "Running experiment with $n1 2-hop flows and $n2 6-hop flows.\n"
+    for i in `seq 1 $NUM_EXP_PER_CONFIG`; do 
 	dir="$subdir/$i"
 	mn -c
 	python tcp_outcast.py --n1 $n1 --n2 $n2 --bw 100 -d $dir -t 10 \
