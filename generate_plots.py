@@ -209,9 +209,9 @@ def PlotMbpsSummary(ax, tcp_probe_data, bucket_size_ms, end_time_ms,
       h = 'rest'
     first, middle, last = data
     means.setdefault(h, [])
-    means[h].append([_GetMeanMedian(first)[0],
-                     _GetMeanMedian(middle)[0],
-                     _GetMeanMedian(last)[0]])
+    means[h].append([_GetSummaryStats(first)[0],
+                     _GetSummaryStats(middle)[0],
+                     _GetSummaryStats(last)[0]])
 
   # For 'rest' calculate the average.
   per_host_avgs = means['rest']
