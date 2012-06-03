@@ -131,21 +131,24 @@ def PlotMbpsInstant(ax, tcp_probe_data, bucket_size_ms, end_time_ms,
   to_plot = []
   for key, values in tcp_probe_data.iteritems():
     mbps = ComputeMbps(values, bucket_size_ms, end_time_ms, start_time_ms)
-    to_plot.append((sorted(mbps)[int(0.7 * len(mbps))], key, mbps))
-  shift = max([x[0] for x in to_plot]) * 1.5
+    to_plot.append((sum(mbps) / len(mbps), key, mbps))
+  shift = max([x[0] for x in to_plot]) * 1.2
   y_adjust = 0
   lines = []
   for _, key, mbps in sorted(to_plot):
     label = None
     if key.startswith(outcast_host):
-      label = key
-    l = ax.plot([y + y_adjust for y in mbps], lw=2, label=label)[0]
+      label = 'flow #1'
+    l = ax.plot([float(bucket_size_ms) * i / 1000 for i in xrange(len(mbps))],
+                [y + y_adjust for y in mbps], lw=2, label=label)[0]
     lines.append((l.get_color(), y_adjust, mbps))
     y_adjust += shift
   # Fill-in the plots in reverse order (so we overlap front-to-back).
   for c, y_adjust, mbps in reversed(lines):
-    ax.fill_between(xrange(len(mbps)), [y + y_adjust for y in mbps],
-                    y2=y_adjust, color=c)
+    ax.fill_between(
+            [float(bucket_size_ms) * i / 1000 for i in xrange(len(mbps))],
+            [y + y_adjust for y in mbps],
+            y2=y_adjust, color=c)
 
   ax.grid(True)
   ax.legend()
@@ -155,10 +158,18 @@ def PlotMbpsInstant(ax, tcp_probe_data, bucket_size_ms, end_time_ms,
     ax.set_title(title)
 
 
-def _GetMeanMedian(l):
-  l = sorted(l)
+def _GetSummaryStats(l):
+  """Return mean, min, max, p10, p50, p90, p99 for provided list."""
   if l:
-    return (sum(l) / float(len(l)), l[len(l)/2])
+    l = sorted(l)
+    n = len(l)
+    return (sum(l) / float(len(l)),
+            min(l),
+            max(l),
+            l[n/10],
+            l[n/2],
+            l[n * 9 / 10],
+            l[n * 99 / 100])
   return None
 
 
@@ -168,34 +179,50 @@ def PlotMbpsSummary(ax, tcp_probe_data, bucket_size_ms, end_time_ms,
   # Aggregate tcp_probe data by host (to delineate number of flows).
   # Compute mean and median for first, middle, and last third.
   host_data = {}
+  flow_stats = []
+  n = 0
   for key, values in tcp_probe_data.iteritems():
     host = key.split(':', 1)[0]
     mbps = ComputeMbps(values, bucket_size_ms, end_time_ms, start_time_ms)
+    s = _GetSummaryStats(mbps)
+    flow_stats.append((s[0], key, s))
     first, middle, last = host_data.setdefault(host, ([], [], []))
     n = len(mbps)
-    first.extend(mbps[:n/3])
-    middle.extend(mbps[n/3:2*n/3])
-    last.extend(mbps[2*n/3:])
+    first.extend(mbps[:n/5])  # first 20%
+    middle.extend(mbps[:2*n/5])  # first 40%
+    last.extend(mbps)  # everything
+
+  if flow_stats:
+    flow_stats.sort(reverse=True)
+    print '#flow, avg, min, max, p10, p50, p90, p99 (all in Mbps)'
+    for _, flow, stats in flow_stats:
+      tokens = [flow] + ['%0.2f' % f for f in stats]
+      print ','.join(tokens)
+
   means = {}
   for h, data in host_data.iteritems():
     if h != outcast_host:
       h = 'rest'
     first, middle, last = data
-    means[h] = [_GetMeanMedian(first)[0],
-                _GetMeanMedian(middle)[0],
-                _GetMeanMedian(last)[0]]
+    means[h] = [_GetSummaryStats(first)[0],
+                _GetSummaryStats(middle)[0],
+                _GetSummaryStats(last)[0]]
 
   ind = range(3)
-  width = 0.35
+  width = 0.2
   rects1 = ax.bar(ind, means[outcast_host], width, color='r')
   rects2 = ax.bar([x + width for x in ind], means['rest'], width, color='y')
 
   ax.set_ylabel('Avg Thpt (Mbps)')
-  ax.set_xlabel('Time (sec)')
+  ax.set_xlabel('Time Interval (sec)')
   ax.set_xticks([x + width for x in ind])
-  ax.set_xticklabels(('0.1', '0.3', '0.5'))
+  # Set labels to the mid-point of each interval.
+  xticklabels = ('[0, %0.1f]' % (bucket_size_ms * n * 0.2 / 1000.0),
+                 '[0, %0.1f]' % (bucket_size_ms * n * 0.4 / 1000.0),
+                 '[0, %0.1f]' % (bucket_size_ms * n / 1000.0))
+  ax.set_xticklabels(xticklabels)
 
-  ax.legend((rects1[0], rects2[0]), ('2-hop', '6-hop'))
+  ax.legend((rects1[0], rects2[0]), ('group-1', 'group-2'))
   if title:
     ax.set_title(title)
 
