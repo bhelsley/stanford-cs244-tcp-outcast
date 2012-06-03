@@ -172,6 +172,10 @@ def _GetSummaryStats(l):
             l[n * 99 / 100])
   return None
 
+# Data for the summary plot is distributed as 20%, 20% and 60% in the 3 buckets.
+DATA_DISTRIBUTION = [0.2, 0.4]
+def _GetIndex(n, bucket):
+  return int(n * DATA_DISTRIBUTION[bucket])
 
 def PlotMbpsSummary(ax, tcp_probe_data, bucket_size_ms, end_time_ms,
                     start_time_ms,
@@ -188,8 +192,8 @@ def PlotMbpsSummary(ax, tcp_probe_data, bucket_size_ms, end_time_ms,
     flow_stats.append((s[0], key, s))
     first, middle, last = host_data.setdefault(host, ([], [], []))
     n = len(mbps)
-    first.extend(mbps[:n/5])  # first 20%
-    middle.extend(mbps[:2*n/5])  # first 40%
+    first.extend(mbps[:_GetIndex(n, 0)])  # first 20%
+    middle.extend(mbps[:_GetIndex(n, 1)])  # first 40%
     last.extend(mbps)  # everything
 
   if flow_stats:
@@ -204,21 +208,32 @@ def PlotMbpsSummary(ax, tcp_probe_data, bucket_size_ms, end_time_ms,
     if h != outcast_host:
       h = 'rest'
     first, middle, last = data
-    means[h] = [_GetSummaryStats(first)[0],
-                _GetSummaryStats(middle)[0],
-                _GetSummaryStats(last)[0]]
+    means.setdefault(h, [])
+    means[h].append([_GetMeanMedian(first)[0],
+                     _GetMeanMedian(middle)[0],
+                     _GetMeanMedian(last)[0]])
+
+  # For 'rest' calculate the average.
+  per_host_avgs = means['rest']
+  num_hosts = len(per_host_avgs)
+  avg_sum = [0, 0, 0]
+  for host_avg in per_host_avgs:
+    avg_sum[0] += host_avg[0]
+    avg_sum[1] += host_avg[1]
+    avg_sum[2] += host_avg[2]
+  means['rest'] = [s/num_hosts for s in avg_sum]
 
   ind = range(3)
   width = 0.2
-  rects1 = ax.bar(ind, means[outcast_host], width, color='r')
+  rects1 = ax.bar(ind, means[outcast_host][0], width, color='r')
   rects2 = ax.bar([x + width for x in ind], means['rest'], width, color='y')
 
   ax.set_ylabel('Avg Thpt (Mbps)')
   ax.set_xlabel('Time Interval (sec)')
   ax.set_xticks([x + width for x in ind])
   # Set labels to the mid-point of each interval.
-  xticklabels = ('[0, %0.1f]' % (bucket_size_ms * n * 0.2 / 1000.0),
-                 '[0, %0.1f]' % (bucket_size_ms * n * 0.4 / 1000.0),
+  xticklabels = ('[0, %0.1f]' % (bucket_size_ms * n * DATA_DISTRIBUTION[0] / 1000.0),
+                 '[0, %0.1f]' % (bucket_size_ms * n * DATA_DISTRIBUTION[1] / 1000.0),
                  '[0, %0.1f]' % (bucket_size_ms * n / 1000.0))
   ax.set_xticklabels(xticklabels)
 

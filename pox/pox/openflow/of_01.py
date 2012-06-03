@@ -713,6 +713,17 @@ class OpenFlow_01_Task (Task):
       try:
         while True:
           con = None
+
+          # Remove any connections which have been disconnected
+          for con in sockets:
+            if con is not listener:
+              if con.disconnected:
+                log.info('Connection %s closed unexpectedly. Removing it.', str(con))
+                try:
+                  sockets.remove(con)
+                except:
+                  pass
+
           rlist, wlist, elist = yield Select(sockets, [], sockets, 5)
           if len(rlist) == 0 and len(wlist) == 0 and len(elist) == 0:
             """
@@ -740,9 +751,10 @@ class OpenFlow_01_Task (Task):
 
           for con in rlist:
             if con is listener:
-              new_sock = listener.accept()[0]
+              new_sock, addr = listener.accept()
               if pox.openflow.debug.pcap_traces:
                 new_sock = wrap_socket(new_sock)
+              print "New connection from: ", addr
               new_sock.setblocking(0)
               # Note that instantiating a Connection object fires a
               # ConnectionUp event (after negotation has completed)
