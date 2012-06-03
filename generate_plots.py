@@ -161,6 +161,10 @@ def _GetMeanMedian(l):
     return (sum(l) / float(len(l)), l[len(l)/2])
   return None
 
+# Data for the summary plot is distributed as 20%, 20% and 60% in the 3 buckets.
+DATA_DISTRIBUTION = [0.2, 0.4]
+def _GetIndex(n, bucket):
+  return int(n * DATA_DISTRIBUTION[bucket])
 
 def PlotMbpsSummary(ax, tcp_probe_data, bucket_size_ms, end_time_ms,
                     start_time_ms,
@@ -173,27 +177,45 @@ def PlotMbpsSummary(ax, tcp_probe_data, bucket_size_ms, end_time_ms,
     mbps = ComputeMbps(values, bucket_size_ms, end_time_ms, start_time_ms)
     first, middle, last = host_data.setdefault(host, ([], [], []))
     n = len(mbps)
-    first.extend(mbps[:n/3])
-    middle.extend(mbps[n/3:2*n/3])
-    last.extend(mbps[2*n/3:])
+    first.extend(mbps[:_GetIndex(n, 0)])
+    middle.extend(mbps[_GetIndex(n, 0):_GetIndex(n, 1)])
+    last.extend(mbps[_GetIndex(n, 1):])
   means = {}
   for h, data in host_data.iteritems():
     if h != outcast_host:
       h = 'rest'
     first, middle, last = data
-    means[h] = [_GetMeanMedian(first)[0],
-                _GetMeanMedian(middle)[0],
-                _GetMeanMedian(last)[0]]
+    means.setdefault(h, [])
+    means[h].append([_GetMeanMedian(first)[0],
+                     _GetMeanMedian(middle)[0],
+                     _GetMeanMedian(last)[0]])
+
+  # For 'rest' calculate the average.
+  per_host_avgs = means['rest']
+  num_hosts = len(per_host_avgs)
+  avg_sum = [0, 0, 0]
+  for host_avg in per_host_avgs:
+    avg_sum[0] += host_avg[0]
+    avg_sum[1] += host_avg[1]
+    avg_sum[2] += host_avg[2]
+  means['rest'] = [s/num_hosts for s in avg_sum]
 
   ind = range(3)
   width = 0.35
-  rects1 = ax.bar(ind, means[outcast_host], width, color='r')
+  rects1 = ax.bar(ind, means[outcast_host][0], width, color='r')
   rects2 = ax.bar([x + width for x in ind], means['rest'], width, color='y')
 
   ax.set_ylabel('Avg Thpt (Mbps)')
   ax.set_xlabel('Time (sec)')
   ax.set_xticks([x + width for x in ind])
-  ax.set_xticklabels(('0.1', '0.3', '0.5'))
+
+  # Compute the xtick labels
+  first_label = '%.1f' % ((start_time_ms +
+                           (end_time_ms - start_time_ms) * DATA_DISTRIBUTION[0]) / 1000.0)
+  second_label = '%.1f' % ((start_time_ms +
+                            (end_time_ms - start_time_ms) * DATA_DISTRIBUTION[1]) / 1000.0)
+  third_label = '%.1f' % (end_time_ms / 1000.0)
+  ax.set_xticklabels((first_label, second_label, third_label))
 
   ax.legend((rects1[0], rects2[0]), ('2-hop', '6-hop'))
   if title:
