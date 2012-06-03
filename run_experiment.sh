@@ -1,6 +1,6 @@
 #!/bin/sh
 
-NUM_EXP_PER_CONFIG=10
+NUM_RUNS_PER_CONFIG=2
 
 safe_mkdir() {
     dir=$1
@@ -22,17 +22,17 @@ run_single_experiment() {
     safe_mkdir $subdir
 
     echo "Running experiment with $n1 2-hop flows and $n2 6-hop flows.\n"
-    for i in `seq 1 $NUM_EXP_PER_CONFIG`; do 
+    for i in `seq 1 $NUM_RUNS_PER_CONFIG`; do 
 	dir="$subdir/$i"
 	mn -c
-	python tcp_outcast.py --n1 $n1 --n2 $n2 --bw 100 -d $dir -t 10 \
+	python tcp_outcast.py --n1 $n1 --n2 $n2 --bw 100 -d $dir -t 20 \
 	    --ft=True --impatient=True
 	python generate_plots.py --tcpdump=$dir/tcp_dump.0_0_1-eth2.txt \
 	    -r "10.0.0.2:5001" --outcast_host "10.0.0.3" -o $dir/result_500 \
-	    --bucket_size_ms=20 --end_time_ms=500
+	    --bucket_size_ms=20 --end_time_ms=500 --start_time_ms=0
 	python generate_plots.py --tcpdump=$dir/tcp_dump.0_0_1-eth2.txt \
 	    -r "10.0.0.2:5001" --outcast_host "10.0.0.3" -o $dir/result_5000 \
-	    --bucket_size_ms=20 --end_time_ms=5000
+	    --bucket_size_ms=20 --end_time_ms=5000 --start_time_ms=0
     done
 }
 

@@ -210,11 +210,9 @@ def PlotMbpsSummary(ax, tcp_probe_data, bucket_size_ms, end_time_ms,
   ax.set_xticks([x + width for x in ind])
 
   # Compute the xtick labels
-  first_label = '%.1f' % ((start_time_ms +
-                           (end_time_ms - start_time_ms) * DATA_DISTRIBUTION[0]) / 1000.0)
-  second_label = '%.1f' % ((start_time_ms +
-                            (end_time_ms - start_time_ms) * DATA_DISTRIBUTION[1]) / 1000.0)
-  third_label = '%.1f' % (end_time_ms / 1000.0)
+  first_label = '%.1f' % (((end_time_ms - start_time_ms) * DATA_DISTRIBUTION[0]) / 1000.0)
+  second_label = '%.1f' % (((end_time_ms - start_time_ms) * DATA_DISTRIBUTION[1]) / 1000.0)
+  third_label = '%.1f' % ((end_time_ms - start_time_ms) / 1000.0)
   ax.set_xticklabels((first_label, second_label, third_label))
 
   ax.legend((rects1[0], rects2[0]), ('2-hop', '6-hop'))
