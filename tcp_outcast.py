@@ -136,8 +136,28 @@ def start_tcpdump(iface):
     Popen("tcpdump -n -S -i %s > %s/tcp_dump.%s.txt" % (iface, args.dir, iface),
           shell=True)
 
+# TODO(bhelsley): Ideally we should use a custom interface class, but my
+# attempts to do this hit some strange python voodoo.
+def configure_tbf_queue(iface, bw_mbps, queue_size_bytes):
+  # First, clear any existing config on the interface
+  cmds = ['tc qdisc del dev %s root' % iface]
+
+  # Need to divide by HZ on host... EC2 uses 100.
+  burst = float(bw_mbps) / 100
+  # TODO(bhelsley): Avoiding setting peak rate and minburst, which means
+  # when tokens are available we send as fast as possible.  Seems that
+  # limiting this to values in the range we want (~100Mbps) is tricky.  Hoping
+  # that configuring the bucket size for tokens is sufficient.
+  cmds.append(
+      'tc qdisc add dev %s root tbf rate %smbit '
+      'burst %smbit limit %s' % (iface, bw_mbps, burst, queue_size_bytes))
+  for cmd in cmds:
+    print cmd
+    print iface, os.system(cmd)
+
+
 def run_outcast(net, receiver, hosts_2hop, hosts_6hop, n_2hops, n_6hops,
-                tcpdump_ifaces, rto_min, queue_size):
+                tcpdump_ifaces, rto_min, queue_size, bw):
     """Run outcast experiment.
 
     Args:
@@ -152,6 +172,7 @@ def run_outcast(net, receiver, hosts_2hop, hosts_6hop, n_2hops, n_6hops,
                       the switch along with the interface connected to the receiver
       rto_min: RTO min time setting for each host as string.
       queue_size: Queue size of each switch.
+      bw: Bandwidth of links in Mbps
     """
 
     seconds = args.time
@@ -167,15 +188,6 @@ def run_outcast(net, receiver, hosts_2hop, hosts_6hop, n_2hops, n_6hops,
     # for each 6 hop host.
     for host in hosts_6hop:
         print '  %s  %s' % (str(host), host.cmd(cmd % str(host)))
-
-    print 'Setting queue size to %s for all switches...' % queue_size
-    for s in net.switches:
-      for intf in s.intfNames():
-        if intf == 'lo':
-            continue
-        cmd = ("tc qdisc change dev %s parent 1:1 "
-               "handle 10: netem limit %s" % (intf, queue_size))
-        print '  %s' % intf, os.system(cmd)
 
     # Start the receiver
     port = 5001
@@ -272,7 +284,8 @@ def run_single_switch_outcast(net):
     run_outcast(net, recvr, [h1], [h2], n_2hops=args.n1, n_6hops=args.n2,
                 tcpdump_ifaces=['s0-eth1', 's0-eth2', 's0-eth3'],
                 rto_min=args.rto_min,
-                queue_size=args.queue_size)
+                queue_size=args.queue_size,
+                bw=args.bw)
 
 def fat_tree_get_6hop_nodes(net, topo, host_name):
     """Returns all 6 hop nodes from host."""
@@ -300,7 +313,8 @@ def run_fat_tree_outcast(net):
                 n_6hops=n_6hops,
                 tcpdump_ifaces=['0_0_1-eth2', '0_0_1-eth1', '0_0_1-eth3', '0_0_1-eth4'],
                 rto_min=args.rto_min,
-                queue_size=args.queue_size)
+                queue_size=args.queue_size,
+                bw=args.bw)
 
 
 def main():
@@ -318,6 +332,17 @@ def main():
     net = Mininet(topo=topo, host=host, link=link)
 
     net.start()
+
+    print 'Setting queue size to %s for all switches...' % args.queue_size
+    for s in net.switches:
+      for intf in s.intfNames():
+        if intf == 'lo':
+            continue
+        #cmd = ("tc qdisc change dev %s parent 1:1 "
+        #       "handle 10: netem limit %s" % (intf, queue_size))
+        #print '  %s' % intf, os.system(cmd)
+        configure_tbf_queue(intf, args.bw, args.queue_size)
+
 
     cprint("*** Dumping network connections:", "green")
     dumpNetConnections(net)
