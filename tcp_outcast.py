@@ -54,7 +54,7 @@ parser.add_argument('--rto_min',
 
 parser.add_argument('--queue_size',
                     help=('queue size to set on switch.'),
-                    default='11')
+                    default='16kb')
 
 parser.add_argument('--time', '-t',
                     dest="time",
@@ -79,6 +79,12 @@ parser.add_argument('--iperf',
 
 parser.add_argument('--impatient',
                     type=bool,
+                    default=False)
+
+parser.add_argument('--cli',
+                    dest='cli',
+                    type=bool,
+                    help="Whether to start CLI.",
                     default=False)
 
 # Expt parameters
@@ -311,7 +317,7 @@ def run_fat_tree_outcast(net):
 
     run_outcast(net, recvr, hosts_2hop, hosts_6hop, n_2hops=args.n1,
                 n_6hops=n_6hops,
-                tcpdump_ifaces=['0_0_1-eth2', '0_0_1-eth1', '0_0_1-eth3', '0_0_1-eth4'],
+                tcpdump_ifaces=['0_0_1-eth2'],
                 rto_min=args.rto_min,
                 queue_size=args.queue_size,
                 bw=args.bw)
@@ -327,7 +333,7 @@ def main():
         topo = SingleSwitchOutcastTopo()
 
     host = custom(CPULimitedHost, cpu=1)
-    link = custom(TCLink, bw=args.bw, delay='0ms')
+    link = custom(TCLink, bw=args.bw, delay='0ms', max_queue_size=200)
 
     net = Mininet(topo=topo, host=host, link=link)
 
@@ -338,16 +344,21 @@ def main():
       for intf in s.intfNames():
         if intf == 'lo':
             continue
-        #cmd = ("tc qdisc change dev %s parent 1:1 "
-        #       "handle 10: netem limit %s" % (intf, queue_size))
-        #print '  %s' % intf, os.system(cmd)
-        configure_tbf_queue(intf, args.bw, args.queue_size)
-
+        if not intf.startswith('4'):
+            cmd = ("tc qdisc change dev %s parent 1:1 "
+                   "handle 10: pfifo limit %s" % (intf, '11'))
+            print '  %s' % intf, os.system(cmd)
+            #configure_tbf_queue(intf, args.bw, args.queue_size)
+        #else:
+        #    configure_tbf_queue(intf, args.bw, '%dkb' % (200 * 1500 / 1024))
 
     cprint("*** Dumping network connections:", "green")
     dumpNetConnections(net)
 
     cprint("*** Testing connectivity", "blue")
+
+    if args.cli:
+        CLI(net)
 
     net.pingAll()
 
