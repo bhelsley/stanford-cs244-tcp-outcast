@@ -184,10 +184,13 @@ def PlotMbpsSummary(ax, tcp_probe_data, bucket_size_ms, end_time_ms,
   # Compute mean and median for first, middle, and last third.
   host_data = {}
   flow_stats = []
-  n = 0
+  n = (end_time_ms - start_time_ms) / bucket_size_ms
+  aggregate = [0 for _ in xrange(n)]
   for key, values in tcp_probe_data.iteritems():
     host = key.split(':', 1)[0]
     mbps = ComputeMbps(values, bucket_size_ms, end_time_ms, start_time_ms)
+    for i, v in enumerate(mbps):
+      aggregate[i] += v
     s = _GetSummaryStats(mbps)
     flow_stats.append((s[0], key, s))
     first, middle, last = host_data.setdefault(host, ([], [], []))
@@ -195,6 +198,9 @@ def PlotMbpsSummary(ax, tcp_probe_data, bucket_size_ms, end_time_ms,
     first.extend(mbps[:_GetIndex(n, 0)])  # first 20%
     middle.extend(mbps[:_GetIndex(n, 1)])  # first 40%
     last.extend(mbps)  # everything
+
+  s = _GetSummaryStats(aggregate)
+  flow_stats.append((s[0], 'SUM', s))
 
   if flow_stats:
     flow_stats.sort(reverse=True)

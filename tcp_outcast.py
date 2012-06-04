@@ -81,6 +81,10 @@ parser.add_argument('--impatient',
                     type=bool,
                     default=False)
 
+parser.add_argument('--hz',
+                    type=int,
+                    default=100)
+
 # Expt parameters
 args = parser.parse_args()
 
@@ -133,7 +137,7 @@ def stop_tcpprobe():
     os.system("killall -9 cat; rmmod tcp_probe")
 
 def start_tcpdump(iface):
-    Popen("tcpdump -n -S -i %s > %s/tcp_dump.%s.txt" % (iface, args.dir, iface),
+    Popen("tcpdump -n -S -B 262144 -i %s > %s/tcp_dump.%s.txt" % (iface, args.dir, iface),
           shell=True)
 
 # TODO(bhelsley): Ideally we should use a custom interface class, but my
@@ -142,15 +146,17 @@ def configure_tbf_queue(iface, bw_mbps, queue_size_bytes):
   # First, clear any existing config on the interface
   cmds = ['tc qdisc del dev %s root' % iface]
 
-  # Need to divide by HZ on host... EC2 uses 100.
-  burst = float(bw_mbps) / 100
-  # TODO(bhelsley): Avoiding setting peak rate and minburst, which means
-  # when tokens are available we send as fast as possible.  Seems that
-  # limiting this to values in the range we want (~100Mbps) is tricky.  Hoping
-  # that configuring the bucket size for tokens is sufficient.
+  # Documentation says divide bw by kernel HZ on host to get burst.  Very unclear what
+  # the actual HZ value for our machines on EC2 are, so we tweak it by a flag.
+  burst = float(bw_mbps) / args.hz
+  # TODO(bhelsley): If we do not set peak rate and minburst, when tokens are available we
+  # send as fast as possible.  This can cause large instantaneous bursts.  Here setting
+  # peakrate and mtu to try and reduce burstiness, but the principled values have to
+  # be derived from HZ which we don't actually know precisely.
   cmds.append(
       'tc qdisc add dev %s root tbf rate %smbit '
-      'burst %smbit limit %s' % (iface, bw_mbps, burst, queue_size_bytes))
+      'burst %smbit limit %s peakrate %smbit mtu 6160' % (
+          iface, bw_mbps, burst, queue_size_bytes, bw_mbps + 0.1))
   for cmd in cmds:
     print cmd
     print iface, os.system(cmd)
@@ -271,8 +277,8 @@ def check_bandwidth(net, test_rate='100M', total_hosts=16):
               break
           num_hosts += 1
           server_mbps, client_mbps = _GetIPerfResult(
-              [h1, h2], l4Type='UDP', udpBw=test_rate)
-          result[('%s@%s' % (str(h1), h1.IP()), '%s@%s' % (str(h2), h2.IP()))] = (
+              [h2, h1], l4Type='UDP', udpBw=test_rate)
+          result[('%s@%s' % (str(h2), h2.IP()), '%s@%s' % (str(h1), h1.IP()))] = (
               client_mbps, server_mbps)
 
   return result
