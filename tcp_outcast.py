@@ -346,7 +346,7 @@ def main():
             continue
         if not intf.startswith('4'):
             cmd = ("tc qdisc change dev %s parent 1:1 "
-                   "handle 10: pfifo limit %s" % (intf, '11'))
+                   "handle 10: netem limit %s" % (intf, '11'))
             print '  %s' % intf, os.system(cmd)
             #configure_tbf_queue(intf, args.bw, args.queue_size)
         #else:
