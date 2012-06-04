@@ -15,3 +15,6 @@ sudo sysctl -w net.ipv4.tcp_ecn=0
 
 sudo apt-get -y install bwm-ng python-argparse
 sudo easy_install termcolor
+
+./build-patched-iperf.sh
+
