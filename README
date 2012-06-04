@@ -1,12 +1,13 @@
 
-See INSTALL for one time setup.
-
-Follow the steps below to run a Fat Tree topology with k=4 with static routing. Run
+Follow the steps below to run the experiment. Run
 all commands from cs244_final/ directory unless mentioned otherwise.
 
-1. Run the script ./run_openflow.sh
+1. Run INSTALL.sh for one time setup only.
 
-2. In another console, run the following:
-sudo python fat_tree_topology.py
+2. Run the script ./run_openflow.sh
 
-3. Once you see the mininet prompt, run pingall to verify all hosts are reachable by all other hosts.
+3. Once you see 'Ready' in step 2, in another console, run the following:
+sudo ./run_experiment.sh
+
+4. The script dumps data in 'results' directory for each of the runs.
+There are 3 plots (*.png files) for different durations: 500ms, 5sec and 20 or 60 sec (depending on the experiment).
