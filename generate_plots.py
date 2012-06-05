@@ -137,10 +137,12 @@ def PlotMbpsInstant(ax, tcp_probe_data, bucket_size_ms, end_time_ms,
   lines = []
   for _, key, mbps in sorted(to_plot):
     label = None
+    argv = []
     if key.startswith(outcast_host):
       label = 'flow #1'
+      argv = ['k']
     l = ax.plot([float(bucket_size_ms) * i / 1000 for i in xrange(len(mbps))],
-                [y + y_adjust for y in mbps], lw=2, label=label)[0]
+                [y + y_adjust for y in mbps], *argv, lw=2, label=label)[0]
     lines.append((l.get_color(), y_adjust, mbps))
     y_adjust += shift
   # Fill-in the plots in reverse order (so we overlap front-to-back).

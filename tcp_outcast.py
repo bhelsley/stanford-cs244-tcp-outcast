@@ -83,7 +83,9 @@ parser.add_argument('--impatient',
 
 parser.add_argument('--hz',
                     type=int,
-                    default=100)
+                    help="HZ value for kernel timers.  5000 default determined "
+                         "experimentally for Mininet EC2",
+                    default=5000)
 
 parser.add_argument('--cli',
                     dest='cli',
@@ -105,22 +107,25 @@ lg.setLogLevel('info')
 class SingleSwitchOutcastTopo(Topo):
   "Simple topology with one switch and three hosts to reproduce behavior."""
 
-  def __init__(self, cpu=0.3, bw=10, *args, **kwargs):
+  def __init__(self, n=2, *args, **kwargs):
     Topo.__init__(self, *args, **kwargs)
-
-    hconfig = {}
-    lconfig = {'bw' : bw}
-
-    h0 = self.add_host('h0')
-    h1 = self.add_host('h1')
-    h2 = self.add_host('h2')
 
     s0 = self.add_switch('s0')
 
-    self.add_link(h0, s0, port1=0, port2=1, **lconfig)
-    self.add_link(h1, s0, port1=0, port2=2, **lconfig)
-    self.add_link(h2, s0, port1=0, port2=3, **lconfig)
+    # Create the receiver.
+    h0 = self.add_host('h0')
+    self.add_link(h0, s0, port1=0, port2=1)
 
+    # Create the "outcast" host.
+    h1 = self.add_host('h1')
+    self.add_link(h1, s0, port1=0, port2=2)
+
+    # Create the group of bully hosts.
+    s1 = self.add_switch('s1')
+    self.add_link(s1, s0, port1=0, port2=3)
+    for i in xrange(n):
+      h = self.add_host('h%d' % (i + 2))
+      self.add_link(h, s1, port1=0, port2=(i + 1))
 
 
 def waitListening(client, server, port):
@@ -154,15 +159,16 @@ def configure_tbf_queue(iface, bw_mbps, queue_size_bytes):
 
   # Documentation says divide bw by kernel HZ on host to get burst.  Very unclear what
   # the actual HZ value for our machines on EC2 are, so we tweak it by a flag.
+  # The performance of the link is exceptionally sensitive to the burst value.  If burst is
+  # too large, then there are frequent, unrealisitic bursts larger than the link rate,
+  # if burst is too small, then throughput collapses.
   burst = float(bw_mbps) / args.hz
   # TODO(bhelsley): If we do not set peak rate and minburst, when tokens are available we
-  # send as fast as possible.  This can cause large instantaneous bursts.  Here setting
-  # peakrate and mtu to try and reduce burstiness, but the principled values have to
-  # be derived from HZ which we don't actually know precisely.
+  # send as fast as possible.  This can cause large instantaneous bursts, but if our HZ
+  # rate is set correctly experimentally the unwanted burstiness is minimal.
   cmds.append(
       'tc qdisc add dev %s root tbf rate %smbit '
-      'burst %smbit limit %s peakrate %smbit mtu 6160' % (
-          iface, bw_mbps, burst, queue_size_bytes, bw_mbps + 0.1))
+      'burst %smbit limit %s' % (iface, bw_mbps, burst, queue_size_bytes))
   for cmd in cmds:
     print cmd
     print iface, os.system(cmd)
@@ -292,8 +298,10 @@ def check_bandwidth(net, test_rate='100M', total_hosts=16):
 def run_single_switch_outcast(net):
     recvr = net.getNodeByName('h0')
     h1 = net.getNodeByName('h1')
-    h2 = net.getNodeByName('h2')
-    run_outcast(net, recvr, [h1], [h2], n_2hops=args.n1, n_6hops=args.n2,
+    bullies = [net.getNodeByName('h%d' % (i+2)) for i in xrange(args.n2)]
+
+    # TODO(bhelsley): Should move to: n1, n2, flows_per_host.
+    run_outcast(net, recvr, [h1], bullies, n_2hops=args.n1, n_6hops=1,
                 tcpdump_ifaces=['s0-eth1', 's0-eth2', 's0-eth3'],
                 rto_min=args.rto_min,
                 queue_size=args.queue_size,
@@ -336,7 +344,7 @@ def main():
     if args.ft:
         topo = FatTreeTopo(4)
     else:
-        topo = SingleSwitchOutcastTopo()
+        topo = SingleSwitchOutcastTopo(n=args.n2)
 
     host = custom(CPULimitedHost, cpu=1)
     link = custom(TCLink, bw=args.bw, delay='0ms', max_queue_size=200)
