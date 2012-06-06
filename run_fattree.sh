@@ -80,8 +80,8 @@ python generate_plots.py \
     --tcpdump=$results_dir/fattree_1_12/data_1/tcp_dump.0_0_1-eth2.txt \
     -r "10.0.0.2:5001" --outcast_host "10.0.0.3" \
     -o $results_dir/final_small \
-    --bucket_size_ms=100 \
-    --end_time_ms=10000 \
+    --bucket_size_ms=200 \
+    --end_time_ms=20000 \
     --start_time_ms=0
 
 run_big_experiment 2 24
