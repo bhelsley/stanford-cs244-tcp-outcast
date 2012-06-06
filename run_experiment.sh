@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# Disable MPTCP in case it gets enabled.
+sysctl -w net.mptcp.mptcp_enabled=0
+
 NUM_RUNS_PER_CONFIG=1
 
 safe_mkdir() {
@@ -69,6 +72,7 @@ run_big_experiment() {
 run_single_experiment 1 2
 run_single_experiment 1 6
 run_single_experiment 1 12
-#run_big_experiment 10 120
-#run_big_experiment 20 240
-#run_big_experiment 30 360
+run_big_experiment 2 24
+run_big_experiment 5 60
+run_big_experiment 10 120
+

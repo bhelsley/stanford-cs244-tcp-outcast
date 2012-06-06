@@ -52,7 +52,7 @@ parser.add_argument('--rto_min',
 
 parser.add_argument('--queue_size',
                     help=('queue size to set on switch.'),
-                    default='128kb')
+                    default='16kb')
 
 parser.add_argument('--time', '-t',
                     dest="time",
@@ -362,11 +362,10 @@ def main():
       for intf in s.intfNames():
         if intf == 'lo':
             continue
-        if not intf.startswith('4'):
-            cmd = ("tc qdisc change dev %s parent 1:1 "
-                   "handle 10: netem limit %s" % (intf, '11'))
-            print '  %s' % intf, os.system(cmd)
-        #    #configure_tbf_queue(intf, args.bw, args.queue_size)
+        cmd = ("tc qdisc change dev %s parent 1:1 "
+               "handle 10: netem limit %s" % (intf, '11'))
+        print '  %s' % intf, os.system(cmd)
+        #configure_tbf_queue(intf, args.bw, args.queue_size)
         #else:
         #    configure_tbf_queue(intf, args.bw, '%dkb' % (200 * 1500 / 1024))
         #configure_tbf_queue(intf, args.bw, args.queue_size)
