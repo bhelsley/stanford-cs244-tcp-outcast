@@ -72,7 +72,30 @@ run_big_experiment() {
 run_single_experiment 1 2
 run_single_experiment 1 6
 run_single_experiment 1 12
+
+# Generate a single plot for the above 3 runs.
+python generate_plots.py \
+    --tcpdump=$results_dir/fattree_1_2/data_1/tcp_dump.0_0_1-eth2.txt \
+    --tcpdump=$results_dir/fattree_1_6/data_1/tcp_dump.0_0_1-eth2.txt \
+    --tcpdump=$results_dir/fattree_1_12/data_1/tcp_dump.0_0_1-eth2.txt \
+    -r "10.0.0.2:5001" --outcast_host "10.0.0.3" \
+    -o $results_dir/final_small \
+    --bucket_size_ms=100 \
+    --end_time_ms=10000 \
+    --start_time_ms=0
+
 run_big_experiment 2 24
 run_big_experiment 5 60
 run_big_experiment 10 120
+
+# Generate a single plot for the above 3 runs.
+python generate_plots.py \
+    --tcpdump=$results_dir/fattree_2_24/data_1/tcp_dump.0_0_1-eth2.txt \
+    --tcpdump=$results_dir/fattree_5_60/data_1/tcp_dump.0_0_1-eth2.txt \
+    --tcpdump=$results_dir/fattree_10_120/data_1/tcp_dump.0_0_1-eth2.txt \
+    -r "10.0.0.2:5001" --outcast_host "10.0.0.3" \
+    -o $results_dir/final_big \
+    --bucket_size_ms=100 \
+    --end_time_ms=10000 \
+    --start_time_ms=0
 
