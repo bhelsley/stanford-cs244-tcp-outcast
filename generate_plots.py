@@ -19,47 +19,6 @@ SimplePktRecord = collections.namedtuple(
      'original_data'])
 
 
-
-def ParseTcpProbe(fd, filter_fn=None):
-  """Parse TCP probe output from file-like object.
-
-  Args:
-    fd: File-like object to read from.
-  """
-
-  def _ParseLine(l):
-    # tcp_probe files have the following format:
-    # <timestamp_secs> <sender> <receiver> <pkt_bytes> <next_seqno>
-    #    <unacked_seqno> <cwnd> <slow_start_threshold> <send_window> <???>
-    #
-    # sample:
-    # 2.221032535 10.0.0.2:39815 10.0.0.1:5001 32 0x1a2a710c 0x1a2a387c 11 2147483647 14592 85
-    tokens = l.split(' ')
-    if len(tokens) != 10:
-      return
-    # TODO(bhelsley): I'm swapping sender and receiver here.  The only TCP probe documentation
-    # I can find claims the opposite:
-    #  http://www.linuxfoundation.org/collaborate/workgroups/networking/tcptesting
-    # BUT, the packets in the tcp_dump with the iperf server as the receiver are 32-byte ACKs.
-    # Not sure if there's something about the tcp_probe module that might cause this to get
-    # confused?
-    (ts, receiver, sender, pkt_bytes, next_seqno, unacked_seqno, cwnd,
-     slow_start_threshold, send_window, _) = tokens
-    return TcpProbeRecord(float(ts), sender, receiver, int(pkt_bytes),
-                          int(next_seqno, 16), int(unacked_seqno, 16), int(cwnd),
-                          int(slow_start_threshold), int(send_window))
-
-  result = {}
-  for l in fd:
-    r = _ParseLine(l)
-    if not r or (filter_fn and not filter_fn(r)):
-      continue
-    flow_id = '%s-%s' % (r.sender, r.receiver)
-    result.setdefault(flow_id, []).append(r)
-
-  return result
-
-
 def ParseTcpDump(fd, filter_fn=None, first_ts=None):
   """Parse TCP dump output from a file-like object."""
   parse_re = re.compile(r'([^ ]+) IP ([^ ]+) > ([^ ]+):[^,]+, (.{3}) ([^,]+),.* length (.+)')
@@ -119,12 +78,14 @@ def ComputeMbps(tcp_probe_records, bucket_size_ms, end_time_ms, start_time_ms=0)
   r = [buckets.get(x, 0) / one_mbps for x in xrange(max_bucket)]
   return r
 
+
 def MakeFig(rows, cols):
   height = 4 * rows
   width = 6 * cols
   matplotlib.rc('figure', figsize=(width, height))
   fig = matplotlib.pyplot.figure()
   return fig
+
 
 def PlotMbpsInstant(ax, tcp_probe_data, bucket_size_ms, end_time_ms,
                     start_time_ms, title, outcast_host):
@@ -253,42 +214,9 @@ def PlotMbpsSummary(ax, tcp_probe_data, bucket_size_ms, end_time_ms,
                  '[0, %0.1f]' % (bucket_size_ms * n / 1000.0))
   ax.set_xticklabels(xticklabels)
 
-  ax.legend((rects1[0], rects2[0]), ('group-1', 'group-2'))
+  ax.legend((rects1[0], rects2[0]), ('2-hop', '6-hop'))
   if title:
     ax.set_title(title)
-
-
-def PlotDropCounts(ax, tcp_probe_join_file, end_time_ms):
-  drops = {}
-  with open(tcp_probe_join_file) as fd:
-    for l in fd:
-      if l.startswith('#'):
-        continue
-      tokens = l.split(',')
-      ingress_iface = tokens[5]
-
-      ts = float(tokens[6])
-      if ts * 1000 > end_time_ms:
-        break
-
-      event_type = tokens[7]
-      if event_type != 'DROP':
-        continue
-
-      if ingress_iface not in drops:
-        drops[ingress_iface] = [(0, 0)]
-      drop_count = drops[ingress_iface][-1][1]
-      drops[ingress_iface].append((ts, drop_count))
-      drops[ingress_iface].append((ts, drop_count + 1))
-
-  for label, values in drops.iteritems():
-    x_val = [v[0] for v in values]
-    y_val = [v[1] for v in values]
-    ax.plot(x_val, y_val, lw=2, label=label)
-  ax.grid(True)
-  ax.legend(loc='lower right')
-  ax.set_xlabel("seconds")
-  ax.set_ylabel("cumulative drops")
 
 
 def MakePlot(data, outfile, args):
@@ -311,10 +239,10 @@ def MakePlot(data, outfile, args):
 
   matplotlib.pyplot.savefig(outfile)
 
+
 def main():
   parser = argparse.ArgumentParser()
-  parser.add_argument('--tcpdump')
-  parser.add_argument('--tcpprobe')
+  parser.add_argument('--tcpdump', action='append')
   parser.add_argument('--tcpdump_join')
   parser.add_argument('-r', dest='receiver', required=True)
   parser.add_argument('-o', dest='out', required=True)
@@ -328,21 +256,33 @@ def main():
   parser.add_argument('--outcast_host', default='10.0.0.2')
   args = parser.parse_args()
 
-
   if args.tcpdump:
-    with open(args.tcpdump) as fd:
-      data = ParseTcpDump(fd, lambda(x): x.receiver == args.receiver)
-      MakePlot(data, args.out + '.tcpdump.png', args)
-  if args.tcpprobe:
-    with open(args.tcpprobe) as fd:
-      data = ParseTcpProbe(fd, lambda(x): x.receiver == args.receiver)
-      if data:
-        MakePlot(data, args.out + '.tcpprobe.png', args)
-  if args.tcpdump_join:
-    fig = MakeFig(1, 1)
-    ax = fig.add_subplot(1, 1, 1)
-    PlotDropCounts(ax, args.tcpdump_join, args.end_time_ms)
-    matplotlib.pyplot.savefig(args.out + '.drops.png')
+    num_cols = len(args.tcpdump)
+    num_rows = 2
+    if args.skip_instant:
+      num_rows = 1
+    fig = MakeFig(num_rows, num_cols)
+    for i, fname in enumerate(args.tcpdump):
+      col = i + 1
+      with open(fname) as fd:
+        data = ParseTcpDump(fd, lambda(x): x.receiver == args.receiver)
+        if not args.skip_instant:
+          ax = fig.add_subplot(num_rows, num_cols, col)
+          PlotMbpsInstant(ax, data, args.bucket_size_ms, args.end_time_ms,
+                          args.start_time_ms, args.instant_title,
+                          args.outcast_host)
+          ax = fig.add_subplot(num_rows, num_cols, num_cols + col)
+          PlotMbpsSummary(ax, data, args.bucket_size_ms,
+                          args.end_time_ms, args.start_time_ms,
+                          args.outcast_host, args.summary_title)
+        else:
+          ax = fig.add_subplot(num_rows, num_cols, col)
+          PlotMbpsSummary(ax, data, args.bucket_size_ms, args.end_time_ms,
+                          args.start_time_ms,
+                          args.outcast_host, args.summary_title)
+
+    outfile = args.out + '.tcpdump.png'
+    matplotlib.pyplot.savefig(outfile)
 
 
 if __name__ == '__main__':
