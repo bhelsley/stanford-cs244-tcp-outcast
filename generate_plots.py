@@ -219,24 +219,119 @@ def PlotMbpsSummary(ax, tcp_probe_data, bucket_size_ms, end_time_ms,
     ax.set_title(title)
 
 
-def MakePlot(data, outfile, args):
-  if not args.skip_instant:
-    fig = MakeFig(1, 2)
-    ax = fig.add_subplot(1, 2, 1)
-    PlotMbpsInstant(ax, data, args.bucket_size_ms, args.end_time_ms,
-                    args.start_time_ms, args.instant_title,
-                    args.outcast_host)
-    ax = fig.add_subplot(1, 2, 2)
-    PlotMbpsSummary(ax, data, args.bucket_size_ms,
-                    args.end_time_ms, args.start_time_ms,
-                    args.outcast_host, args.summary_title)
-  else:
-    fig = MakeFig(1, 1)
-    ax = fig.add_subplot(1, 1, 1)
-    PlotMbpsSummary(ax, data, args.bucket_size_ms, args.end_time_ms,
-                    args.start_time_ms,
-                    args.outcast_host, args.summary_title)
+def PlotMbps(args):
+  if not args.tcpdump:
+    return
+  num_cols = len(args.tcpdump)
+  num_rows = 2
+  if args.skip_instant:
+    num_rows = 1
+  fig = MakeFig(num_rows, num_cols)
+  for i, fname in enumerate(args.tcpdump):
+    col = i + 1
+    with open(fname) as fd:
+      data = ParseTcpDump(fd, lambda(x): x.receiver == args.receiver)
+      if not args.skip_instant:
+        ax = fig.add_subplot(num_rows, num_cols, col)
+        PlotMbpsInstant(ax, data, args.bucket_size_ms, args.end_time_ms,
+                        args.start_time_ms, args.instant_title,
+                        args.outcast_host)
+        ax = fig.add_subplot(num_rows, num_cols, num_cols + col)
+        PlotMbpsSummary(ax, data, args.bucket_size_ms,
+                        args.end_time_ms, args.start_time_ms,
+                        args.outcast_host, args.summary_title)
+      else:
+        ax = fig.add_subplot(num_rows, num_cols, col)
+        PlotMbpsSummary(ax, data, args.bucket_size_ms, args.end_time_ms,
+                        args.start_time_ms,
+                        args.outcast_host, args.summary_title)
 
+  outfile = args.out + '.tcpdump.png'
+  matplotlib.pyplot.savefig(outfile)
+
+
+def PlotDrops(args):
+  if not args.tcpdump_join:
+    return
+  with open(args.tcpdump_join) as fd:
+    last_event = {}
+    current_counter = {}
+    event_chains = {}
+
+    def _UpdateKey(key, event_type):
+      if key in last_event and last_event[key] != event_type:
+        event_chains.setdefault(key, []).append(
+            (last_event[key], current_counter[key]))
+        current_counter[key] = 0
+      last_event[key] = event_type
+      if key not in current_counter:
+        current_counter[key] = 0
+      current_counter[key] += 1
+
+    for l in fd:
+      # crude filtering
+      if '[' in l:
+        continue
+      tokens = l.split(',')
+      if len(tokens) != 11:
+        continue
+
+      flow_id = tokens[1]
+      pkt_type = tokens[3]
+      iface = tokens[6]
+      event_type = tokens[8]
+
+      if pkt_type != 'seq':
+        continue
+
+      #_UpdateKey(iface, event_type)
+      _UpdateKey(flow_id, event_type)
+
+  drop_hist = {}
+  for k, v in event_chains.iteritems():
+    for event_type, sequence_len in v:
+      if event_type == 'DROP':
+        h = drop_hist.setdefault(k, {})
+        if sequence_len not in h:
+          h[sequence_len] = 0
+        h[sequence_len] += 1
+
+  # Aggregate histograms by group.
+  outcast = {}
+  rest = {}
+  n_rest = 0
+  for k, h in drop_hist.iteritems():
+    host = k.split(':')[0]
+    if host != args.outcast_host:
+      hist = rest
+      n_rest += 1
+    else:
+      hist = outcast
+    for key, n in h.iteritems():
+      hist.setdefault(key, 0)
+      hist[key] += n
+
+  for k in rest.iterkeys():
+    rest[k] /= float(n_rest)
+
+  fig = MakeFig(1, 1)
+  ax = fig.add_subplot(1, 1, 1)
+
+  max_seq = max([max(h.keys()) for h in [rest, outcast]])
+  ind = range(1, max_seq + 1)
+  width = 0.2
+  rects1 = ax.bar(ind, [outcast.get(i, 0) for i in ind], width, color='r')
+  rects2 = ax.bar([x + width for x in ind],
+                  [rest.get(i, 0) for i in ind], width, color='y')
+
+  ax.set_ylabel('# Occurences Per Flow')
+  ax.set_xlabel('# Consecutive Packet Drops')
+  ax.set_xticks([x + width for x in ind])
+  ax.set_xticklabels(ind)
+
+  ax.legend((rects1[0], rects2[0]), ('2-hop flow', '6-hop flows'))
+
+  outfile = args.out + '.blackout.png'
   matplotlib.pyplot.savefig(outfile)
 
 
@@ -256,34 +351,8 @@ def main():
   parser.add_argument('--outcast_host', default='10.0.0.2')
   args = parser.parse_args()
 
-  if args.tcpdump:
-    num_cols = len(args.tcpdump)
-    num_rows = 2
-    if args.skip_instant:
-      num_rows = 1
-    fig = MakeFig(num_rows, num_cols)
-    for i, fname in enumerate(args.tcpdump):
-      col = i + 1
-      with open(fname) as fd:
-        data = ParseTcpDump(fd, lambda(x): x.receiver == args.receiver)
-        if not args.skip_instant:
-          ax = fig.add_subplot(num_rows, num_cols, col)
-          PlotMbpsInstant(ax, data, args.bucket_size_ms, args.end_time_ms,
-                          args.start_time_ms, args.instant_title,
-                          args.outcast_host)
-          ax = fig.add_subplot(num_rows, num_cols, num_cols + col)
-          PlotMbpsSummary(ax, data, args.bucket_size_ms,
-                          args.end_time_ms, args.start_time_ms,
-                          args.outcast_host, args.summary_title)
-        else:
-          ax = fig.add_subplot(num_rows, num_cols, col)
-          PlotMbpsSummary(ax, data, args.bucket_size_ms, args.end_time_ms,
-                          args.start_time_ms,
-                          args.outcast_host, args.summary_title)
-
-    outfile = args.out + '.tcpdump.png'
-    matplotlib.pyplot.savefig(outfile)
-
+  PlotMbps(args)
+  PlotDrops(args)
 
 if __name__ == '__main__':
   main()

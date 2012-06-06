@@ -92,6 +92,13 @@ parser.add_argument('--cli',
                     help="Whether to start CLI.",
                     default=False)
 
+parser.add_argument('--use_tbf',
+                    help="If set, use a tbf queue with a byte-buffer, otherwise "
+                         "use Mininet's default with a packet buffer.",
+                    type=bool,
+                    default=False)
+
+
 # Expt parameters
 args = parser.parse_args()
 
@@ -362,13 +369,12 @@ def main():
       for intf in s.intfNames():
         if intf == 'lo':
             continue
-        cmd = ("tc qdisc change dev %s parent 1:1 "
-               "handle 10: netem limit %s" % (intf, '11'))
-        print '  %s' % intf, os.system(cmd)
-        #configure_tbf_queue(intf, args.bw, args.queue_size)
-        #else:
-        #    configure_tbf_queue(intf, args.bw, '%dkb' % (200 * 1500 / 1024))
-        #configure_tbf_queue(intf, args.bw, args.queue_size)
+        if args.use_tbf:
+          configure_tbf_queue(intf, args.bw, args.queue_size)
+        else:
+          cmd = ("tc qdisc change dev %s parent 1:1 "
+                 "handle 10: netem limit %s" % (intf, '20'))
+          print '  %s' % intf, os.system(cmd)
 
     cprint("*** Dumping network connections:", "green")
     dumpNetConnections(net)
