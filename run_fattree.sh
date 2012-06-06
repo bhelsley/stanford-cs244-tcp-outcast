@@ -95,7 +95,8 @@ python generate_plots.py \
     --tcpdump=$results_dir/fattree_10_120/data_1/tcp_dump.0_0_1-eth2.txt \
     -r "10.0.0.2:5001" --outcast_host "10.0.0.3" \
     -o $results_dir/final_big \
-    --bucket_size_ms=100 \
-    --end_time_ms=10000 \
-    --start_time_ms=0
+    --bucket_size_ms=200 \
+    --end_time_ms=60000 \
+    --start_time_ms=0 \
+    --skip_instant=True
 
