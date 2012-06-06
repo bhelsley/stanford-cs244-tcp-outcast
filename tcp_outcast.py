@@ -76,7 +76,7 @@ parser.add_argument('--iperf',
                     default='/usr/bin/iperf')
 
 parser.add_argument('--impatient',
-                    help="Skip some time consuming validation checks."
+                    help="Skip some time consuming validation checks.",
                     type=bool,
                     default=False)
 
@@ -348,7 +348,7 @@ def main():
         topo = FatTreeTopo(4)
     else:
         n = args.n2 / args.n1
-        topo = SingleSwitchOutcastTopo(n=n)
+        topo = SimpleOutcastTopo(n=n)
 
     host = custom(CPULimitedHost, cpu=1)
     link = custom(TCLink, bw=args.bw, delay='0ms', max_queue_size=200)
