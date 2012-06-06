@@ -348,7 +348,7 @@ def main():
         topo = FatTreeTopo(4)
     else:
         n = args.n2 / args.n1
-        topo = SingleSwitchOutcastTopo(n=n)
+        topo = SimpleOutcastTopo(n=n)
 
     host = custom(CPULimitedHost, cpu=1)
     link = custom(TCLink, bw=args.bw, delay='0ms', max_queue_size=200)
