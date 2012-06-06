@@ -362,14 +362,14 @@ def main():
       for intf in s.intfNames():
         if intf == 'lo':
             continue
-        #if not intf.startswith('4'):
-        #    cmd = ("tc qdisc change dev %s parent 1:1 "
-        #           "handle 10: pfifo limit %s" % (intf, '11'))
-        #    print '  %s' % intf, os.system(cmd)
+        if not intf.startswith('4'):
+            cmd = ("tc qdisc change dev %s parent 1:1 "
+                   "handle 10: netem limit %s" % (intf, '11'))
+            print '  %s' % intf, os.system(cmd)
         #    #configure_tbf_queue(intf, args.bw, args.queue_size)
         #else:
         #    configure_tbf_queue(intf, args.bw, '%dkb' % (200 * 1500 / 1024))
-        configure_tbf_queue(intf, args.bw, args.queue_size)
+        #configure_tbf_queue(intf, args.bw, args.queue_size)
 
     cprint("*** Dumping network connections:", "green")
     dumpNetConnections(net)
