@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-"CS244 Assignment 1: Parking Lot"
+"CS244 PA3: Reproducing TCP Outcast on Mininet."
 
 import re
 
@@ -11,7 +11,6 @@ from mininet.node import CPULimitedHost, RemoteController
 from mininet.link import TCLink
 from mininet.util import irange, custom, quietRun, dumpNetConnections
 from mininet.cli import CLI
-from ripl.ripl.dctopo import FatTreeTopo
 
 from time import sleep, time
 from multiprocessing import Process
@@ -21,7 +20,6 @@ import argparse
 
 import sys
 import os
-from util.monitor import monitor_devs_ng
 
 def cprint(s, color, cr=True):
     """Print in color
@@ -32,7 +30,7 @@ def cprint(s, color, cr=True):
     else:
         print T.colored(s, color),
 
-parser = argparse.ArgumentParser(description="Parking lot tests")
+parser = argparse.ArgumentParser(description="Reproduce TCP Outcast on Mininet.")
 
 parser.add_argument('--dir', '-d',
                     help="Directory to store outputs",
@@ -54,18 +52,18 @@ parser.add_argument('--rto_min',
 
 parser.add_argument('--queue_size',
                     help=('queue size to set on switch.'),
-                    default='16kb')
+                    default='128kb')
 
 parser.add_argument('--time', '-t',
                     dest="time",
                     type=int,
                     help="Duration of the experiment.",
-                    default=60)
+                    default=10)
 
 parser.add_argument('--bw', '-b',
                     type=float,
                     help="Bandwidth of network links (in Mbps)",
-                    default=10)
+                    default=100)
 
 parser.add_argument('--ft',
                     type=bool,
@@ -78,6 +76,7 @@ parser.add_argument('--iperf',
                     default='/usr/bin/iperf')
 
 parser.add_argument('--impatient',
+                    help="Skip some time consuming validation checks."
                     type=bool,
                     default=False)
 
@@ -96,16 +95,21 @@ parser.add_argument('--cli',
 # Expt parameters
 args = parser.parse_args()
 
+# Only import dctopo if we're going to use it.
+if args.ft:
+  from ripl.ripl.dctopo import FatTreeTopo
+
 CUSTOM_IPERF_PATH = args.iperf
 assert(os.path.exists(CUSTOM_IPERF_PATH))
 
 if not os.path.exists(args.dir):
-    os.makedirs(args.dir)
+  os.makedirs(args.dir)
 
 lg.setLogLevel('info')
 
-class SingleSwitchOutcastTopo(Topo):
-  "Simple topology with one switch and three hosts to reproduce behavior."""
+
+class SimpleOutcastTopo(Topo):
+  """Simple topology with two switches tailored to reproduce Outcast effect."""
 
   def __init__(self, n=2, *args, **kwargs):
     Topo.__init__(self, *args, **kwargs)
@@ -120,7 +124,7 @@ class SingleSwitchOutcastTopo(Topo):
     h1 = self.add_host('h1')
     self.add_link(h1, s0, port1=0, port2=2)
 
-    # Create the group of bully hosts.
+    # Create the group of "bully" hosts.
     s1 = self.add_switch('s1')
     self.add_link(s1, s0, port1=0, port2=3)
     for i in xrange(n):
@@ -148,7 +152,7 @@ def stop_tcpprobe():
     os.system("killall -9 cat; rmmod tcp_probe")
 
 def start_tcpdump(iface):
-    Popen("tcpdump -n -S -B 262144 -i %s > %s/tcp_dump.%s.txt" % (iface, args.dir, iface),
+    Popen("tcpdump -n -S -B 524288 -i %s > %s/tcp_dump.%s.txt" % (iface, args.dir, iface),
           shell=True)
 
 # TODO(bhelsley): Ideally we should use a custom interface class, but my
@@ -196,7 +200,6 @@ def run_outcast(net, receiver, hosts_2hop, hosts_6hop, n_2hops, n_6hops,
     seconds = args.time
 
     print 'Setting minRTO to %s on each host...' % rto_min
-    # TODO(bhelsley): I think this can be done with os.system anyway.
     cmd = 'ip route replace dev %%s-eth0 rto_min %s' % rto_min
     # for receiver.
     print '  %s  %s' % (str(receiver), receiver.cmd(cmd % str(receiver)))
@@ -216,10 +219,7 @@ def run_outcast(net, receiver, hosts_2hop, hosts_6hop, n_2hops, n_6hops,
     # host as client.
     waitListening(hosts_2hop[0], receiver, port)
 
-    # Start the bandwidth and cwnd monitors in the background
-    monitor = Process(target=monitor_devs_ng,
-                      args=('%s/bwm.txt' % args.dir, 1.0))
-    monitor.start()
+    # Start TCP Probe to monitor CWND, and TCP Dump on the key interfaces.
     start_tcpprobe()
 
     for iface in tcpdump_ifaces:
@@ -249,10 +249,9 @@ def run_outcast(net, receiver, hosts_2hop, hosts_6hop, n_2hops, n_6hops,
     sleep(seconds + 5)
 
     print 'Ending flows...'
-    receiver.cmd('kill %iperf')
+    receiver.cmd('pkill iperf')
 
     # Shut down monitors
-    monitor.terminate()
     stop_tcpprobe()
 
 def check_prereqs():
@@ -295,17 +294,20 @@ def check_bandwidth(net, test_rate='100M', total_hosts=16):
 
   return result
 
+
 def run_single_switch_outcast(net):
     recvr = net.getNodeByName('h0')
     h1 = net.getNodeByName('h1')
-    bullies = [net.getNodeByName('h%d' % (i+2)) for i in xrange(args.n2)]
+    n = args.n2 / args.n1
+    bullies = [net.getNodeByName('h%d' % (i+2)) for i in xrange(n)]
 
     # TODO(bhelsley): Should move to: n1, n2, flows_per_host.
-    run_outcast(net, recvr, [h1], bullies, n_2hops=args.n1, n_6hops=1,
+    run_outcast(net, recvr, [h1], bullies, n_2hops=args.n1, n_6hops=args.n1,
                 tcpdump_ifaces=['s0-eth1', 's0-eth2', 's0-eth3'],
                 rto_min=args.rto_min,
                 queue_size=args.queue_size,
                 bw=args.bw)
+
 
 def fat_tree_get_6hop_nodes(net, topo, host_name):
     """Returns all 6 hop nodes from host."""
@@ -318,6 +320,7 @@ def fat_tree_get_6hop_nodes(net, topo, host_name):
             hosts_6hop.append(net.getNodeByName(node))
 
     return hosts_6hop
+
 
 def run_fat_tree_outcast(net):
     recvr = net.getNodeByName('0_0_2')
@@ -344,7 +347,8 @@ def main():
     if args.ft:
         topo = FatTreeTopo(4)
     else:
-        topo = SingleSwitchOutcastTopo(n=args.n2)
+        n = args.n2 / args.n1
+        topo = SingleSwitchOutcastTopo(n=n)
 
     host = custom(CPULimitedHost, cpu=1)
     link = custom(TCLink, bw=args.bw, delay='0ms', max_queue_size=200)
@@ -392,7 +396,6 @@ def main():
 
     net.stop()
     end = time()
-    os.system("killall -9 bwm-ng")
     cprint("Experiment took %.3f seconds" % (end - start), "yellow")
 
 if __name__ == '__main__':
